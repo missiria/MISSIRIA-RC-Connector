@@ -1,0 +1,31 @@
+[Unit]
+Description=MISSIRIA RC Connector — MCP server for Roundcube
+Documentation=https://github.com/missiria/MISSIRIA-RC-Connector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rcmcp
+Group=rcmcp
+WorkingDirectory=/opt/missiria-rc-connector/src/mcp-server
+EnvironmentFile=/etc/missiria-rc-connector/env
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/missiria-rc-connector /var/log/missiria-rc-connector
+ReadOnlyPaths=/etc/missiria-rc-connector
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

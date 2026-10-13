@@ -1,0 +1,172 @@
+# Connecting AI platforms — MISSIRIA RC Connector
+
+All hosted platforms use the same two values:
+
+| Value | Example |
+|---|---|
+| MCP server URL | `https://mcp.example.com/mcp` |
+| Auth | OAuth (automatic: Dynamic Client Registration + PKCE) **or** a CLI token `rcc_…` as `Authorization: Bearer` |
+
+The consent screen always opens in your Roundcube webmail. Approve only the
+scopes you need. `mail:read` is enough for "read and summarise my mail".
+
+---
+
+## ChatGPT (Connectors / Apps)
+
+Requirements: ChatGPT Plus, Pro, Team, Enterprise or Edu; **Developer mode**
+enabled (Settings → Connectors → Advanced → Developer mode).
+
+1. Settings → **Connectors** → **Create**.
+2. Name: `Roundcube (mcp.example.com)`. MCP Server URL: `https://mcp.example.com/mcp`.
+3. Authentication: **OAuth**. Leave client id / secret empty (DCR fills them).
+4. Click **Create** → a Roundcube tab opens → log in → **Approve**.
+5. In a chat, open the `+` menu → enable the connector → ask
+   "Search my mailbox for invoices from last week".
+
+Deep research needs the `search` and `fetch` tools; the connector exposes both.
+
+If creation fails with HTTP 403 before the consent screen appears, Cloudflare
+is blocking `ChatGPT-User`. See `docs/INSTALL.md` step 1.
+
+---
+
+## Claude (claude.ai web / Claude Desktop)
+
+1. Settings → **Connectors** → **Add custom connector**.
+2. Name: `Roundcube`. Remote MCP server URL: `https://mcp.example.com/mcp`.
+3. Leave OAuth client id / secret empty → **Add** → **Connect** → Roundcube
+   consent → Approve.
+4. In a chat, the tools appear under the connector name. Enable the write
+   tools only when needed.
+
+Team / Enterprise admins can publish the connector organisation-wide.
+
+## Claude Code (CLI)
+
+OAuth (recommended):
+
+```bash
+claude mcp add --transport http roundcube https://mcp.example.com/mcp
+# then inside Claude Code: /mcp → roundcube → Authenticate
+```
+
+CLI token (headless servers, CI):
+
+```bash
+claude mcp add --transport http roundcube https://mcp.example.com/mcp \
+  --header "Authorization: Bearer rcc_xxxxxxxx"
+```
+
+---
+
+## OpenAI Codex CLI
+
+`~/.codex/config.toml`:
+
+```toml
+[mcp_servers.roundcube]
+url = "https://mcp.example.com/mcp"
+bearer_token_env_var = "RC_CONNECTOR_TOKEN"
+```
+
+```bash
+export RC_CONNECTOR_TOKEN=rcc_xxxxxxxx
+codex
+```
+
+---
+
+## Cursor
+
+`.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "roundcube": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer rcc_xxxxxxxx" }
+    }
+  }
+}
+```
+
+Cursor also supports OAuth: omit `headers` and click **Connect** in
+Settings → MCP.
+
+---
+
+## VS Code (GitHub Copilot agent mode)
+
+`.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "roundcube": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+VS Code starts the OAuth flow on first use.
+
+---
+
+## Google Gemini CLI
+
+`~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "roundcube": {
+      "httpUrl": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer rcc_xxxxxxxx" }
+    }
+  }
+}
+```
+
+Gemini web app custom connectors: follow the same URL + OAuth pattern once
+custom MCP connectors are available on your plan.
+
+---
+
+## Any stdio-only client (local proxy)
+
+```bash
+npx -y missiria-rc-connector stdio --url https://mcp.example.com/mcp --token rcc_xxxxxxxx
+```
+
+Claude Desktop `claude_desktop_config.json` example:
+
+```json
+{
+  "mcpServers": {
+    "roundcube": {
+      "command": "npx",
+      "args": ["-y", "missiria-rc-connector", "stdio", "--url", "https://mcp.example.com/mcp"],
+      "env": { "RC_CONNECTOR_TOKEN": "rcc_xxxxxxxx" }
+    }
+  }
+}
+```
+
+---
+
+## n8n / automation
+
+Use the **MCP Client** node with Streamable HTTP, URL
+`https://mcp.example.com/mcp`, auth header `Authorization: Bearer rcc_…`.
+Create a dedicated CLI token per workflow so it can be revoked alone.
+
+---
+
+## Revoking access
+
+Roundcube → Settings → **AI Connectors** → Revoke next to the grant. The
+platform's next call receives `401` and will prompt to reconnect.

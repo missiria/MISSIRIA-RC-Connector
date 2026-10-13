@@ -1,0 +1,25 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# Runtime / secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+keys/
+data/*.sqlite
+data/*.db
+
+# PHP
+vendor/
+composer.lock
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
