@@ -89,11 +89,15 @@ describe('authorization code + PKCE flow', () => {
   it('fails without PKCE, with unknown scope, and with unregistered redirect_uri', async () => {
     const { app } = await makeApp();
     const client = await registerClient(app);
+    // Errors are rendered locally, never redirected (open registration → redirect would be an open redirect).
     const noPkce = await app.request(`/oauth/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent('https://ai.example.test/cb')}&state=s`);
-    expect(new URL(noPkce.headers.get('location')!).searchParams.get('error')).toBe('invalid_request');
+    expect(noPkce.status).toBe(400);
+    expect(noPkce.headers.get('location')).toBeNull();
+    expect(await noPkce.text()).toContain('invalid_request');
     const { challenge } = pkcePair();
     const badScope = await app.request(`/oauth/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent('https://ai.example.test/cb')}&scope=mail:nuke&code_challenge=${challenge}`);
-    expect(new URL(badScope.headers.get('location')!).searchParams.get('error')).toBe('invalid_scope');
+    expect(badScope.status).toBe(400);
+    expect(await badScope.text()).toContain('invalid_scope');
     const badRedirect = await app.request(`/oauth/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent('https://evil.example/cb')}&code_challenge=${challenge}`);
     expect(badRedirect.status).toBe(400);
   });

@@ -4,11 +4,22 @@
   "description": "MCP server + OAuth 2.1 authorization server for the MISSIRIA RC Connector (Roundcube)",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=22.13" },
-  "bin": { "rc-connector": "dist/cli.js" },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "rc-connector": "dist/cli.js"
+  },
   "main": "dist/server.js",
-  "files": ["dist", "README.md"],
-  "repository": { "type": "git", "url": "https://github.com/missiria/MISSIRIA-RC-Connector.git", "directory": "mcp-server" },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/missiria/MISSIRIA-RC-Connector.git",
+    "directory": "mcp-server"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/server.ts",
@@ -20,6 +31,7 @@
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@types/sanitize-html": "^2.16.2",
     "hono": "^4.13.13",
     "html-to-text": "^10.0.1",
     "imapflow": "^2.4.0",
@@ -28,6 +40,7 @@
     "mailparser": "^3.9.38",
     "nodemailer": "^10.1.0",
     "pino": "^10.4.0",
+    "sanitize-html": "^2.18.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

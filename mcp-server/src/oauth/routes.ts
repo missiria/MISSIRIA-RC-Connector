@@ -41,6 +41,15 @@ function withQuery(base: string, params: Record<string, string | null | undefine
   return u.toString();
 }
 
+export function redirectHost(uri: string): string {
+  try {
+    const u = new URL(uri);
+    return u.host || u.protocol.replace(':', '') + ' app';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export function consentUrl(deps: Deps, requestId: string): string {
   const sig = hmacHex(deps.cfg.INTERNAL_KEY, requestId);
   return withQuery(`${deps.cfg.WEBMAIL_URL}/`, { _task: 'rcconnector', _action: 'consent', req: requestId, sig });
@@ -128,8 +137,12 @@ export function oauthRoutes(deps: Deps): Hono {
     const redirectUri = q['redirect_uri'];
     if (!redirectUri || !client.redirect_uris.includes(redirectUri)) return c.text('invalid_request: redirect_uri not registered for this client', 400);
 
+    // Validation errors are rendered on this server instead of being redirected to the
+    // client: registration is open (RFC 7591), so bouncing errors to an arbitrary registered
+    // redirect_uri would turn /oauth/authorize into an open redirect. Only a successful
+    // consent (or an explicit user denial on the consent screen) leaves this host.
     const fail = (error: string, description: string) =>
-      c.redirect(withQuery(redirectUri, { error, error_description: description, state: q['state'] }), 302);
+      c.text(`${error}: ${description}`, 400);
 
     if (q['response_type'] !== 'code') return fail('unsupported_response_type', 'only response_type=code is supported');
     if (!q['code_challenge'] || !isValidCodeChallenge(q['code_challenge'])) return fail('invalid_request', 'code_challenge (S256) is required');

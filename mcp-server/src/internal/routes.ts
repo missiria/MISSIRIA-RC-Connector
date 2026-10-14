@@ -4,6 +4,7 @@ import type { Deps } from '../deps.js';
 import { SCOPES, isScope } from '../config.js';
 import { now } from '../store/db.js';
 import { constantTimeEqual, randomId, randomToken, sha256Hex } from '../crypto/seal.js';
+import { redirectHost } from '../oauth/routes.js';
 
 const mailboxSchema = z.object({
   username: z.string().min(1).max(320),
@@ -42,6 +43,8 @@ export function internalRoutes(deps: Deps): Hono {
       status: expired && ar.status === 'pending' ? 'expired' : ar.status,
       client_name: client?.client_name ?? 'Unknown client',
       client_id: ar.client_id,
+      // Shown on the consent screen so the user can spot a client_name that does not match where tokens go.
+      redirect_host: redirectHost(ar.redirect_uri),
       scopes: ar.scope.split(' '),
       expires_at: ar.expires_at,
     });

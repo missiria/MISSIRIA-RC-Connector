@@ -43,6 +43,7 @@ describe('internal API', () => {
     expect(info.status).toBe('pending');
     expect(info.client_name).toBe('Test AI');
     expect(info.scopes).toEqual(['mail:read']);
+    expect((info as unknown as { redirect_host: string }).redirect_host).toBe('ai.example.test');
   });
 
   it('audit endpoint returns rows for the user', async () => {
