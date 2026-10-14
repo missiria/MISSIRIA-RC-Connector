@@ -359,3 +359,6 @@ It is idempotent: re-running updates code, keeps keys, env and grants.
 | `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` on start | Node older than 22.13 | Step 2: install Node 22 LTS or 24. |
 | Roundcube shows blank settings page | PHP `sodium` extension missing | `apt install php8.x-sodium && systemctl reload php*-fpm`. |
 | Consent page loops back to login | Plugin not listed in `$config['plugins']` or `rcconnector` task blocked | Check step 6 enable block; `tail -f $RC_DIR/logs/errors.log`. |
+| Plugin changes have no effect after deploy (old code keeps running) | `opcache.validate_timestamps=0` in PHP-FPM | Drop a one-off `<?php opcache_reset();` file in the webroot, request it once, delete it. A reload does not flush OPcache; do not restart FPM on a shared host. |
+| `Failed to load plugin file …/missiria_rc_connector.php` in `logs/errors.log` | Plugin files not readable by the PHP-FPM user | `find $RC_DIR/plugins/missiria_rc_connector -type d -exec chmod 755 {} +; find … -type f ! -name config.inc.php -exec chmod 644 {} +`; keep `config.inc.php` 0640 root:www-data. |
+| `Class "rc_connector_…" not found` | Plugin older than 0.1.1 | Update the plugin (helpers are `require_once`d since `81d9978`). |
