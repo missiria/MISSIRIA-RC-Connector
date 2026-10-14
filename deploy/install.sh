@@ -191,8 +191,11 @@ run systemctl daemon-reload
 run systemctl enable --quiet "$UNIT"
 run systemctl restart "$UNIT"
 if [[ $DRY -eq 0 ]]; then
-  sleep 1
-  curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null || { journalctl -u "$UNIT" -n 30 --no-pager; die "service did not come up"; }
+  for _ in $(seq 1 20); do
+    curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null || { journalctl -u "$UNIT" -n 30 --no-pager; die "service did not come up within 20 s"; }
   log "Service healthy on 127.0.0.1:$PORT"
 fi
 
@@ -231,7 +234,14 @@ if [[ $PLUGIN -eq 1 ]]; then
   id -u "$WEB_USER" >/dev/null 2>&1 || die "web user '$WEB_USER' does not exist (pass --web-user)"
   log "Installing Roundcube plugin into $PLUGIN_DST (readable by $WEB_USER)"
   WEB_GROUP="$(id -gn "$WEB_USER")"
-  # Never operate through symlinks under the web root: a planted link could redirect chown/chmod.
+  # Root will chown/chmod inside this tree, so the tree and its parent must not be writable by the web
+  # user (otherwise a planted symlink could redirect those operations between check and use).
+  for d in "$RC_DIR/plugins" "$(dirname "$RC_DIR/plugins")"; do
+    [[ -d "$d" ]] || continue
+    if [[ "$(stat -L -c %U "$d")" != "root" ]] || sudo -u "$WEB_USER" test -w "$d"; then
+      die "$d is writable by $WEB_USER or not root-owned; fix ownership (root:root 755) before installing the plugin"
+    fi
+  done
   [[ -L "$PLUGIN_DST" || -L "$PLUGIN_DST/config.inc.php" ]] && die "$PLUGIN_DST (or its config.inc.php) is a symlink; refusing to install over it"
   run install -d -o root -g root -m 755 "$PLUGIN_DST"
   run rsync -a --delete --no-links --exclude config.inc.php --exclude tests --exclude vendor --exclude phpunit.xml.dist "$PLUGIN_SRC/" "$PLUGIN_DST/"
