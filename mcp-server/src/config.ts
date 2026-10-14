@@ -56,6 +56,22 @@ export function isAllMailboxesAdmin(cfg: Config, username: string): boolean {
   return cfg.ALL_MAILBOXES_ADMINS.includes(username.trim().toLowerCase());
 }
 
+/**
+ * The server-configured mail endpoint. Virtual (directory) accounts use only this, never a
+ * host stored on a grant: a grant's hosts come from the web host and must not be able to
+ * redirect the master credential elsewhere.
+ */
+export function serverMailEndpoint(cfg: Config): { imap_host: string; imap_port: number; imap_tls: 'implicit' | 'none'; smtp_host: string; smtp_port: number; smtp_tls: 'starttls' | 'none' } {
+  return {
+    imap_host: cfg.IMAP_HOST,
+    imap_port: cfg.IMAP_PORT,
+    imap_tls: cfg.IMAP_TLS ? 'implicit' : 'none',
+    smtp_host: cfg.SMTP_HOST,
+    smtp_port: cfg.SMTP_PORT,
+    smtp_tls: cfg.SMTP_STARTTLS ? 'starttls' : 'none',
+  };
+}
+
 export const SCOPES = ['mail:read', 'mail:write', 'mail:send', 'contacts:read'] as const;
 export type Scope = (typeof SCOPES)[number];
 export const DEFAULT_SCOPE: Scope = 'mail:read';

@@ -20,6 +20,10 @@
 #
 # Security note: the master secret reaches every mailbox. Only the connector service user can read
 # it; a compromise of that process exposes all mailboxes (see docs/SECURITY-MODEL.md).
+# The connector sends that secret only to IMAP_HOST/IMAP_PORT/IMAP_TLS and SMTP_HOST/SMTP_PORT/
+# SMTP_STARTTLS from the env file (never to hosts stored on a grant). Set them to the endpoint
+# Roundcube itself uses (e.g. IMAP 127.0.0.1:143 with IMAP_TLS=false; SMTP mail.example.com:587
+# with SMTP_STARTTLS=true) before running this script; the self-test uses --imap-port.
 set -euo pipefail
 
 APP_USER="rcmcp"
@@ -157,7 +161,8 @@ systemctl restart "$UNIT"
 PORT="$(sed -n 's/^PORT=//p' "$ENV_FILE")"; PORT="${PORT:-8787}"
 INTERNAL_KEY="$(sed -n 's/^INTERNAL_KEY=//p' "$ENV_FILE")"
 for _ in $(seq 1 20); do curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && break; sleep 1; done
-curl -fsS -H "X-Internal-Key: $INTERNAL_KEY" "http://127.0.0.1:$PORT/internal/healthz" | sed -n 's/.*\("allMailboxes":{[^}]*}\).*/   \1/p' || die "connector did not come up; see journalctl -u $UNIT"
+# the internal key goes to curl through its config on stdin, never on the command line
+curl -fsS -K - "http://127.0.0.1:$PORT/internal/healthz" <<<"header = \"X-Internal-Key: $INTERNAL_KEY\"" | sed -n 's/.*\("allMailboxes":{[^}]*}\).*/   \1/p' || die "connector did not come up; see journalctl -u $UNIT"
 
 # ---------------------------------------------------------------- 5. self-test through the connector's IMAP library
 FIRST="$(head -n 1 "$DIR_FILE")"

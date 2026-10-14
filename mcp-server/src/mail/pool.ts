@@ -4,6 +4,7 @@ import type { MailClient } from './types.js';
 import { MailError } from './types.js';
 import { ImapMailbox } from './imap.js';
 import { unseal, wipe } from '../crypto/seal.js';
+import { isAllMailboxesAdmin, serverMailEndpoint } from '../config.js';
 
 export type MailClientFactory = (account: AccountRow, password: string) => MailClient;
 
@@ -36,9 +37,12 @@ export class SessionPool {
     this.timer.unref();
   }
 
-  /** True when this grant reaches every server mailbox (flag set and the mode is configured). */
+  /**
+   * True when this grant reaches every server mailbox: flag set, mode configured, and the owner
+   * still on the admin list (removing an admin from the configuration revokes the reach at once).
+   */
   reachesAll(grant: GrantRow): boolean {
-    return grant.all_mailboxes && Boolean(this.deps.allMailboxes);
+    return grant.all_mailboxes && Boolean(this.deps.allMailboxes) && isAllMailboxesAdmin(this.deps.cfg, grant.username);
   }
 
   /**
@@ -76,6 +80,11 @@ export class SessionPool {
     return [...linked, ...extra];
   }
 
+  /**
+   * Directory mailbox as an account. Mail endpoint = the server configuration only (IMAP and SMTP
+   * env), never the grant's stored hosts: those are supplied by the web host and must not be able
+   * to point the master credential at another server.
+   */
   private virtualAccount(grant: GrantRow, login: string, alias: string): AccountRow {
     return {
       id: `${grant.id}:dir:${login}`,
@@ -83,12 +92,7 @@ export class SessionPool {
       alias,
       username: login,
       email: login,
-      imap_host: grant.imap_host,
-      imap_port: grant.imap_port,
-      imap_tls: grant.imap_tls,
-      smtp_host: grant.smtp_host,
-      smtp_port: grant.smtp_port,
-      smtp_tls: grant.smtp_tls,
+      ...serverMailEndpoint(this.deps.cfg),
       sealed: new Uint8Array(0),
       is_primary: false,
       created_at: grant.created_at,

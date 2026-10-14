@@ -41,9 +41,14 @@ each case. Companion to `SECURITY.md` (reporting) and `docs/ARCHITECTURE.md`.
   (`ALL_MAILBOXES_SECRET_FILE`, root:rcmcp 0640) that opens **every** mailbox of the host, not
   only those with live grants. This is the largest blast radius in the design and is chosen
   knowingly by the host administrator for their own mailboxes.
+- The master secret is only ever sent to the mail endpoint configured in the env file
+  (`IMAP_HOST/PORT/TLS`, `SMTP_HOST/PORT/STARTTLS`), never to hosts stored on a grant: a compromised
+  web host can write grants, so grant-supplied hosts must not be able to redirect that credential.
+  Plaintext towards a non-loopback host refuses to boot.
 - Controls: the mode needs four settings to be present; only logins in `ALL_MAILBOXES_ADMINS`
   can switch a connection to it, only for connections they own, and the switch is explicit in
-  the UI with a warning. Scopes still apply (a read-only connection stays read-only across all
+  the UI with a warning. Removing a login from `ALL_MAILBOXES_ADMINS` ends its reach at the next
+  restart even if the flag is still set on its connections. Scopes still apply (a read-only connection stays read-only across all
   mailboxes). Every call records the targeted mailbox (`account_user`) in the audit log, which
   that mailbox's owner can see.
 - Rotation: `deploy/enable-all-mailboxes.sh --rotate` (new secret, Dovecot reload, connector

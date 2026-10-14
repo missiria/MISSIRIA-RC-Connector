@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { allMailboxesConfigured, loadConfig, type Config } from './config.js';
+import { allMailboxesConfigured, loadConfig, serverMailEndpoint, type Config } from './config.js';
 import { createLogger } from './log.js';
-import { openStore } from './store/db.js';
+import { isLoopbackHost, openStore } from './store/db.js';
 import { TokenService } from './oauth/tokens.js';
 import { readKeyPair } from './crypto/seal.js';
 import { MailboxDirectory } from './mail/directory.js';
@@ -26,6 +26,11 @@ export function buildDeps(env: NodeJS.ProcessEnv = process.env, { requireKeys = 
     const masterSecret = readFileSync(cfg.ALL_MAILBOXES_SECRET_FILE!, 'utf8').replace(/\r?\n$/, '');
     if (!masterSecret) throw new Error(`${cfg.ALL_MAILBOXES_SECRET_FILE} is empty`);
     const directory = MailboxDirectory.fromFile(cfg.MAILBOX_DIRECTORY!);
+    // The master credential only ever travels to the configured endpoint; plaintext is loopback-only.
+    const ep = serverMailEndpoint(cfg);
+    if ((ep.imap_tls === 'none' && !isLoopbackHost(ep.imap_host)) || (ep.smtp_tls === 'none' && !isLoopbackHost(ep.smtp_host))) {
+      throw new Error('all-mailboxes mode: IMAP_TLS/SMTP_STARTTLS may only be off for loopback IMAP_HOST/SMTP_HOST');
+    }
     deps.allMailboxes = { masterSecret, directory };
     log.warn({ masterUser: cfg.ALL_MAILBOXES_USER, mailboxes: directory.count, admins: cfg.ALL_MAILBOXES_ADMINS }, 'all-mailboxes mode configured: admin connections can reach every mailbox of this server');
   } else if (cfg.ALL_MAILBOXES_USER || cfg.ALL_MAILBOXES_SECRET_FILE || cfg.MAILBOX_DIRECTORY) {
