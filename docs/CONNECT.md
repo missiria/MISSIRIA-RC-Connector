@@ -46,6 +46,10 @@ click **All mailboxes (N)** once. From there:
   rifcars" → the assistant passes the alias, the address or just the domain.
 - No alias → your main mailbox, as before. "search everywhere" fans out across
   all of them.
+- If an assistant keeps answering from the main mailbox, give it the selector
+  inline: "search in:iptv-premium-europe for renewals", or folder
+  `iptv-premium-europe:INBOX`. The server understands `in:`, `account:` and
+  `mailbox:` prefixes and folder prefixes on every tool.
 
 **Linked mailboxes only** switches it off again at any time. The button is
 only shown to the logins your admin listed; everyone else keeps link codes.

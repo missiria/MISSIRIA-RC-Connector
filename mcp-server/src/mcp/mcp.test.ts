@@ -202,6 +202,17 @@ describe('MCP endpoint', () => {
     const audit = deps.store.listAuditForUser('contact@iptv-premium-europe.test');
     expect(audit[0]).toMatchObject({ tool: 'list_folders', account: 'iptv-premium-europe', account_user: 'contact@iptv-premium-europe.test', username: 'alice@example.test' });
 
+    // the mailbox can be chosen inside folder / query when the model drops `account`
+    expect(text(await client.callTool({ name: 'search_messages', arguments: { folder: 'yazzicars:INBOX', query: 'invoice' } })).messages.length).toBeGreaterThan(0);
+    expect(deps.store.listAuditForUser('alice@example.test')[0]).toMatchObject({ tool: 'search_messages', account: 'yazzicars', folder: 'INBOX' });
+    expect(text(await client.callTool({ name: 'search_messages', arguments: { query: 'in:iptv-premium-europe invoice' } })).messages.length).toBe(2);
+    expect(deps.store.listAuditForUser('alice@example.test')[0]).toMatchObject({ account: 'iptv-premium-europe' });
+    const only = text(await client.callTool({ name: 'search', arguments: { query: 'contact@yazzicars.test' } })).results as Array<{ id: string }>;
+    expect(only.length).toBe(3);
+    expect(only.every((r) => r.id.startsWith('yazzicars:'))).toBe(true);
+    expect(text(await client.callTool({ name: 'get_message', arguments: { folder: 'yazzicars-billing:INBOX', uid: 3 } })).message.folder).toBe('INBOX');
+    expect(deps.store.listAuditForUser('alice@example.test')[0]).toMatchObject({ tool: 'get_message', account: 'yazzicars-billing' });
+
     // search fans out over every reachable mailbox; fetch accepts directory aliases
     const results = text(await client.callTool({ name: 'search', arguments: { query: 'invoice' } })).results as Array<{ id: string }>;
     expect(new Set(results.map((r) => r.id.split(':')[0]))).toEqual(new Set(['example', 'yazzicars', 'iptv-premium-europe', 'yazzicars-billing']));

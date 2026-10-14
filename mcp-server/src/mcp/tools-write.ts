@@ -111,7 +111,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: { folder: folderArg, uid: uidArg, text: body.text, html: body.html, reply_all: z.boolean().default(false), attachments: body.attachments, account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         ctx.requireScope('mail:send', 'reply_message');
         ctx.requireScope('mail:read', 'reply_message'); // the original is read and partially echoed back
@@ -157,7 +158,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: { folder: folderArg, uid: uidArg, to_folder: z.string().min(1).max(500), account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         ctx.requireScope('mail:write', 'move_message');
         await ctx.withMail('move_message', a.folder, (m) => m.move(a.folder, a.uid, a.to_folder), a.account);
@@ -174,7 +176,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: { folder: folderArg, uid: uidArg, add: z.array(z.enum(['seen', 'flagged', 'answered'])).default([]), remove: z.array(z.enum(['seen', 'flagged', 'answered'])).default([]), account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         ctx.requireScope('mail:write', 'set_flags');
         if (a.add.length === 0 && a.remove.length === 0) throw new ToolError('invalid_argument', 'specify flags to add or remove');
@@ -192,7 +195,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: { folder: folderArg, uid: uidArg, account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         ctx.requireScope('mail:write', 'delete_message');
         const trash = await ctx.withMail('delete_message', a.folder, (m) => m.trash(a.folder, a.uid), a.account);

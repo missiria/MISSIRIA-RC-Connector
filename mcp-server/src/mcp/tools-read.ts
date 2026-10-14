@@ -63,7 +63,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     'search_messages',
     {
       title: 'Search messages',
-      description: 'Search a folder and return newest-first message summaries (uid, date, from, to, subject, flags, hasAttachments). Use filters together; `query` matches subject, body and sender. Dates are ISO 8601 (YYYY-MM-DD). Paginate with `page`.',
+      description: 'Search a folder and return newest-first message summaries (uid, date, from, to, subject, flags, hasAttachments). Use filters together; `query` matches subject, body and sender. Dates are ISO 8601 (YYYY-MM-DD). Paginate with `page`. To read another mailbox, pass `account`, or prefix the folder ("iptv-premium-europe:INBOX"), or start the query with in:<alias>.',
       inputSchema: {
         folder: folderArg,
         query: z.string().max(200).optional().describe('Free text searched in subject, body and from'),
@@ -81,7 +81,8 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         read('search_messages');
         const result = await ctx.withMail('search_messages', a.folder, (m) =>
@@ -107,7 +108,8 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         read('get_message');
         const msg = await ctx.withMail('get_message', a.folder, (m) => m.getMessage(a.folder, a.uid, { format: a.format, maxChars: a.max_chars }), a.account);
@@ -125,7 +127,8 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: { folder: folderArg, uid: uidArg, limit: z.number().int().min(1).max(50).default(20), account: accountArg },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         read('get_thread');
         const messages = await ctx.withMail('get_thread', a.folder, (m) => m.getThread(a.folder, a.uid, a.limit), a.account);
@@ -142,7 +145,8 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: { folder: folderArg, uid: uidArg, part: z.string().min(1).max(40), account: accountArg },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         read('get_attachment');
         const att = await ctx.withMail('get_attachment', a.folder, (m) => m.getAttachment(a.folder, a.uid, a.part, ctx.deps.cfg.ATTACHMENT_MAX_BYTES), a.account);
@@ -173,11 +177,12 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     'search',
     {
       title: 'Search (ChatGPT connector contract)',
-      description: 'Full-text search over the INBOX of every reachable mailbox (or one mailbox when `account` is given), returning result ids usable with `fetch`. Equivalent to search_messages with query.',
+      description: 'Full-text search over the INBOX of every reachable mailbox, or of one mailbox when `account` is given or the query starts with in:<alias> (a query that is only a mailbox name lists its newest mail). Returns result ids usable with `fetch`.',
       inputSchema: { query: z.string().min(1).max(200), account: accountArg },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         read('search');
         if (!ctx.deps.pool) throw new ToolError('mail_unavailable', 'mail session pool not initialised');
