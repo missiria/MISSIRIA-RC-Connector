@@ -166,6 +166,8 @@ describe('MCP endpoint', () => {
     expect(audit.find((a) => a.tool === 'list_folders' && a.outcome === 'ok')).toMatchObject({ account: 'yazzicars', account_user: 'contact@yazzicars.test' });
     expect(deps.store.listAuditForUser('contact@yazzicars.test').map((a) => a.tool)).toContain('list_folders');
     expect(deps.pool!.size).toBe(2);
+    // ADR-002-only connections never carry the server-wide hint
+    expect(JSON.parse((((await client.callTool({ name: 'list_folders', arguments: {} })).content) as Array<{ text: string }>)[0]!.text).mailbox_scope).toBeUndefined();
   });
 
   it('ADR-003: an admin connection with server-wide reach lists, targets and searches every server mailbox', async () => {
@@ -188,8 +190,14 @@ describe('MCP endpoint', () => {
       { alias: 'yazzicars-billing', email: 'billing@yazzicars.test', primary: false, source: 'server' },
     ]);
 
+    // a call on the main mailbox says what else is reachable; a targeted call does not
+    const main = text(await client.callTool({ name: 'list_folders', arguments: {} }));
+    expect(main.mailbox_scope).toMatchObject({ account: 'example', other_mailboxes: 3, examples: ['yazzicars', 'iptv-premium-europe', 'yazzicars-billing'] });
+    expect(main.mailbox_scope.hint).toContain('list_accounts');
     MockMail.created = [];
-    expect(text(await client.callTool({ name: 'list_folders', arguments: { account: 'iptv-premium-europe.test' } })).account).toBe('iptv-premium-europe');
+    const targeted = text(await client.callTool({ name: 'list_folders', arguments: { account: 'iptv-premium-europe.test' } }));
+    expect(targeted.account).toBe('iptv-premium-europe');
+    expect(targeted.mailbox_scope).toBeUndefined();
     expect(MockMail.created).toEqual([{ user: 'contact@iptv-premium-europe.test*rccmaster', pass: 'master-pw' }]);
     const audit = deps.store.listAuditForUser('contact@iptv-premium-europe.test');
     expect(audit[0]).toMatchObject({ tool: 'list_folders', account: 'iptv-premium-europe', account_user: 'contact@iptv-premium-europe.test', username: 'alice@example.test' });
