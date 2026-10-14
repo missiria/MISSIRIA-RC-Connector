@@ -3,8 +3,8 @@ import { openStore, now } from './db.js';
 
 function grantFixture(id: string, username = 'alice@example.test') {
   return {
-    id, kind: 'oauth' as const, username, imap_host: 'imap.example.test', imap_port: 993, imap_secure: true, email: null,
-    smtp_host: 'smtp.example.test', smtp_port: 587, sealed: Buffer.from('sealed'), scopes: ['mail:read' as const],
+    id, kind: 'oauth' as const, username, imap_host: 'imap.example.test', imap_port: 993, imap_tls: 'implicit' as const, email: null,
+    smtp_host: 'smtp.example.test', smtp_port: 587, smtp_tls: 'starttls' as const, sealed: Buffer.from('sealed'), scopes: ['mail:read' as const],
     client_id: null, label: null,
   };
 }

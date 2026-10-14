@@ -53,6 +53,7 @@ async function setup(scopes: string[], env: Record<string, string> = {}) {
     const u = new URL(String(input));
     expect(u.searchParams.get('_action')).toBe('contacts');
     expect(u.searchParams.get('sig')).toMatch(/^[0-9a-f]{64}$/);
+    expect(u.searchParams.get('host')).toBe('127.0.0.1');
     return new Response(JSON.stringify({ contacts: [{ name: 'Ana', email: 'ana@example.test' }] }), { headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
   const app = createApp(deps, mcpRoutes);
@@ -71,7 +72,7 @@ describe('write tools', () => {
     const r = await client.callTool({ name: 'send_message', arguments: { to: ['bob@example.test'], cc: ['carl@example.test'], subject: 'Hello', text: 'Hi Bob', attachments: [{ filename: 'a.txt', mime: 'text/plain', base64: Buffer.from('abc').toString('base64') }] } });
     expect(r.isError).toBeFalsy();
     expect(smtp.sent).toHaveLength(1);
-    expect(smtp.sent[0]!.creds).toMatchObject({ user: 'alice@example.test', pass: 'imap-pass', port: 587, startTls: true });
+    expect(smtp.sent[0]!.creds).toMatchObject({ user: 'alice@example.test', pass: 'imap-pass', port: 587, tls: 'starttls' });
     expect(smtp.sent[0]!.envelope.to.sort()).toEqual(['bob@example.test', 'carl@example.test']);
     const parsed = await parseRaw(smtp.sent[0]!.raw);
     expect(parsed.subject).toBe('Hello');

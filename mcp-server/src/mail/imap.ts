@@ -7,7 +7,8 @@ import { addressList, htmlToText, parseRaw, referencesOf, sanitizeMailHtml, snip
 export interface ImapCredentials {
   host: string;
   port: number;
-  secure: boolean;
+  /** implicit (TLS on connect), starttls (upgrade, required) or none (plaintext, loopback only) */
+  tls: 'implicit' | 'starttls' | 'none';
   rejectUnauthorized: boolean;
   user: string;
   pass: string;
@@ -55,7 +56,8 @@ export class ImapMailbox implements MailClient {
     this.client = new ImapFlow({
       host: creds.host,
       port: creds.port,
-      secure: creds.secure,
+      secure: creds.tls === 'implicit',
+      doSTARTTLS: creds.tls === 'starttls',
       tls: { rejectUnauthorized: creds.rejectUnauthorized },
       auth: { user: creds.user, pass: creds.pass },
       logger: false,

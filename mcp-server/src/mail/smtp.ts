@@ -6,7 +6,7 @@ import { MailError } from './types.js';
 export interface SmtpCredentials {
   host: string;
   port: number;
-  startTls: boolean;
+  tls: 'implicit' | 'starttls' | 'none';
   user: string;
   pass: string;
 }
@@ -44,8 +44,9 @@ export class NodemailerSender implements SmtpSender {
     const transport = nodemailer.createTransport({
       host: creds.host,
       port: creds.port,
-      secure: creds.port === 465,
-      requireTLS: creds.port !== 465 && creds.startTls,
+      secure: creds.tls === 'implicit',
+      requireTLS: creds.tls === 'starttls',
+      ignoreTLS: creds.tls === 'none',
       auth: { user: creds.user, pass: creds.pass },
       connectionTimeout: 15000,
       socketTimeout: 60000,

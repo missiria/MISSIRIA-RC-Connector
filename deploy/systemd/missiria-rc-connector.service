@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 User=rcmcp
 Group=rcmcp
-WorkingDirectory=/opt/missiria-rc-connector/src/mcp-server
+WorkingDirectory=/opt/missiria-rc-connector/app
 EnvironmentFile=/etc/missiria-rc-connector/env
 ExecStart=/usr/bin/node dist/server.js
 Restart=on-failure
@@ -24,7 +24,7 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 ReadWritePaths=/var/lib/missiria-rc-connector /var/log/missiria-rc-connector
-ReadOnlyPaths=/etc/missiria-rc-connector
+ReadOnlyPaths=/etc/missiria-rc-connector /opt/missiria-rc-connector
 LimitNOFILE=65536
 
 [Install]

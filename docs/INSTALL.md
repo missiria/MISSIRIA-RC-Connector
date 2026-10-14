@@ -87,7 +87,8 @@ node -v && npm -v
 
 ```bash
 useradd --system --home /opt/missiria-rc-connector --shell /usr/sbin/nologin rcmcp
-install -d -o rcmcp -g rcmcp -m 750 /opt/missiria-rc-connector
+install -d -o root  -g rcmcp -m 750 /opt/missiria-rc-connector         # src/ (root) + app/ (rcmcp)
+install -d -o rcmcp -g rcmcp -m 750 /opt/missiria-rc-connector/app     # where npm and node run
 install -d -o rcmcp -g rcmcp -m 750 /var/lib/missiria-rc-connector      # SQLite DB
 install -d -o root  -g rcmcp -m 750 /etc/missiria-rc-connector         # env + keys
 install -d -o root  -g rcmcp -m 750 /etc/missiria-rc-connector/keys
@@ -101,18 +102,22 @@ its database and log.
 
 ## 4. Install the MCP server
 
+The git checkout stays **root-owned**: root later installs the systemd unit,
+nginx vhost and Roundcube plugin from it, so the unprivileged app user must not
+be able to modify those files. `npm` only ever runs as `rcmcp` in its own copy.
+
 ```bash
 cd /opt/missiria-rc-connector
-sudo -u rcmcp git clone https://github.com/missiria/MISSIRIA-RC-Connector.git src
-cd src/mcp-server
-sudo -u rcmcp npm ci --omit=dev
-sudo -u rcmcp npm run build
+git clone https://github.com/missiria/MISSIRIA-RC-Connector.git src
+chown -R root:rcmcp src && chmod -R g-w,o-rwx src
+rsync -a --exclude node_modules --exclude dist src/mcp-server/ app/ && chown -R rcmcp:rcmcp app
+sudo -u rcmcp bash -c 'cd /opt/missiria-rc-connector/app && npm ci && npm run build && npm prune --omit=dev'
 ```
 
 ### 4.1 Generate the sealing key pair
 
 ```bash
-sudo -u rcmcp node dist/cli.js keygen --out /etc/missiria-rc-connector/keys
+sudo -u rcmcp node /opt/missiria-rc-connector/app/dist/cli.js keygen --out /etc/missiria-rc-connector/keys
 # → writes server.sk (private, 0600, rcmcp) and prints the PUBLIC key:
 #   RC_CONNECTOR_SERVER_PUBKEY=base64:....
 ```
@@ -157,7 +162,7 @@ Roundcube talks to a remote mail server, copy `imap_host` / `smtp_host` from
 
 ```bash
 set -a; . /etc/missiria-rc-connector/env; set +a
-sudo -E -u rcmcp node dist/cli.js migrate
+sudo -E -u rcmcp node /opt/missiria-rc-connector/app/dist/cli.js migrate
 ```
 
 ### 4.4 systemd unit
@@ -299,10 +304,11 @@ Then connect a real platform: see `docs/CONNECT.md`.
 journalctl -u missiria-rc-connector -f
 tail -f /var/log/missiria-rc-connector/server.log
 
-# Upgrade
-cd /opt/missiria-rc-connector/src && sudo -u rcmcp git pull --ff-only
-cd mcp-server && sudo -u rcmcp npm ci --omit=dev && sudo -u rcmcp npm run build
-set -a; . /etc/missiria-rc-connector/env; set +a; sudo -E -u rcmcp node dist/cli.js migrate
+# Upgrade (or simply re-run deploy/install.sh)
+cd /opt/missiria-rc-connector/src && git pull --ff-only
+rsync -a --delete --exclude node_modules --exclude dist mcp-server/ ../app/ && chown -R rcmcp:rcmcp ../app
+sudo -u rcmcp bash -c 'cd /opt/missiria-rc-connector/app && npm ci && npm run build && npm prune --omit=dev'
+set -a; . /etc/missiria-rc-connector/env; set +a; sudo -E -u rcmcp node /opt/missiria-rc-connector/app/dist/cli.js migrate
 systemctl restart missiria-rc-connector
 rsync -a --delete ../roundcube-plugin/missiria_rc_connector/ "$RC_DIR/plugins/missiria_rc_connector/" \
   --exclude config.inc.php && systemctl reload php*-fpm

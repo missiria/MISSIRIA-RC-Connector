@@ -64,7 +64,7 @@ async function submit(ctx: ToolContext, tool: string, msg: OutgoingMessage): Pro
   }
   try {
     await deps.pool!.withSecret(principal.grantId, (pass) =>
-      deps.smtp!.send({ host: grant.smtp_host, port: grant.smtp_port, startTls: deps.cfg.SMTP_STARTTLS, user: grant.username, pass }, raw, { from: msg.from.address, to: recipients.map((r) => r.address) }),
+      deps.smtp!.send({ host: grant.smtp_host, port: grant.smtp_port, tls: grant.smtp_tls, user: grant.username, pass }, raw, { from: msg.from.address, to: recipients.map((r) => r.address) }),
     );
   } catch (e) {
     deps.store.releaseSend(principal.grantId);
@@ -210,7 +210,9 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         const started = Date.now();
         let outcome = 'ok';
         try {
-          const contacts = await searchContacts(ctx.deps, ctx.principal.username, a.q, a.limit, ctx.deps.fetch ?? fetch);
+          const grant = ctx.deps.store.getGrant(ctx.principal.grantId);
+          if (!grant) throw new ToolError('mail_unavailable', 'grant not found');
+          const contacts = await searchContacts(ctx.deps, ctx.principal.username, grant.imap_host, a.q, a.limit, ctx.deps.fetch ?? fetch);
           return ctx.ok({ contacts });
         } catch (e) {
           outcome = 'error';

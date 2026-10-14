@@ -12,7 +12,8 @@ set -euo pipefail
 REPO_URL="https://github.com/missiria/MISSIRIA-RC-Connector.git"
 APP_USER="rcmcp"
 APP_HOME="/opt/missiria-rc-connector"
-SRC_DIR="$APP_HOME/src"
+SRC_DIR="$APP_HOME/src"      # root-owned checkout: deploy files root installs come from here
+APP_DIR="$APP_HOME/app"      # rcmcp-owned copy of mcp-server where npm runs and node executes
 ETC_DIR="/etc/missiria-rc-connector"
 KEYS_DIR="$ETC_DIR/keys"
 ENV_FILE="$ETC_DIR/env"
@@ -75,32 +76,40 @@ if ! id -u "$APP_USER" >/dev/null 2>&1; then
   log "Creating system user $APP_USER"
   run useradd --system --home "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER"
 fi
-run install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_HOME" "$DATA_DIR" "$LOG_DIR"
+run install -d -o root -g "$APP_USER" -m 750 "$APP_HOME"
+run install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$DATA_DIR" "$LOG_DIR" "$APP_DIR"
 run install -d -o root -g "$APP_USER" -m 750 "$ETC_DIR" "$KEYS_DIR"
 
 # --- 3. Source checkout -----------------------------------------------------
+# The checkout stays root-owned and read-only for rcmcp: systemd/nginx/logrotate/plugin files are
+# installed by root from here, so a compromised app user cannot plant a unit file or vhost.
 if [[ -d "$SRC_DIR/.git" ]]; then
   log "Updating source ($GIT_REF)"
-  run sudo -u "$APP_USER" git -C "$SRC_DIR" fetch --quiet origin
-  run sudo -u "$APP_USER" git -C "$SRC_DIR" checkout --quiet "$GIT_REF"
-  run sudo -u "$APP_USER" git -C "$SRC_DIR" pull --quiet --ff-only origin "$GIT_REF" || true
+  run git -C "$SRC_DIR" fetch --quiet origin
+  run git -C "$SRC_DIR" checkout --quiet "$GIT_REF"
+  run git -C "$SRC_DIR" pull --quiet --ff-only origin "$GIT_REF" || true
 else
   log "Cloning $REPO_URL ($GIT_REF)"
-  run sudo -u "$APP_USER" git clone --quiet --branch "$GIT_REF" "$REPO_URL" "$SRC_DIR"
+  run git clone --quiet --branch "$GIT_REF" "$REPO_URL" "$SRC_DIR"
 fi
+run chown -R root:"$APP_USER" "$SRC_DIR"
+run chmod -R g-w,o-rwx "$SRC_DIR"
 
-log "Building mcp-server"
-run sudo -u "$APP_USER" bash -c "cd '$SRC_DIR/mcp-server' && npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev --no-audit --no-fund"
+# npm (and any package scripts) run only as rcmcp, inside its own copy.
+log "Building mcp-server in $APP_DIR"
+run rsync -a --delete --exclude node_modules --exclude dist "$SRC_DIR/mcp-server/" "$APP_DIR/"
+run chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+run sudo -u "$APP_USER" bash -c "cd '$APP_DIR' && npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev --no-audit --no-fund"
 
 # --- 4. Keys and environment ------------------------------------------------
 if [[ ! -f "$KEYS_DIR/server.sk" ]]; then
   log "Generating sealing key pair"
-  run sudo -u "$APP_USER" node "$SRC_DIR/mcp-server/dist/cli.js" keygen --out "$KEYS_DIR"
+  run sudo -u "$APP_USER" node "$APP_DIR/dist/cli.js" keygen --out "$KEYS_DIR"
 else
   log "Key pair already present, keeping it"
 fi
 PUBKEY="(dry-run)"
-[[ $DRY -eq 1 ]] || PUBKEY="$(sudo -u "$APP_USER" node "$SRC_DIR/mcp-server/dist/cli.js" pubkey --keys "$KEYS_DIR")"
+[[ $DRY -eq 1 ]] || PUBKEY="$(sudo -u "$APP_USER" node "$APP_DIR/dist/cli.js" pubkey --keys "$KEYS_DIR")"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   log "Writing $ENV_FILE"
@@ -136,7 +145,7 @@ else
 fi
 
 log "Running database migrations"
-run sudo -u "$APP_USER" bash -c "set -a; . '$ENV_FILE'; set +a; node '$SRC_DIR/mcp-server/dist/cli.js' migrate"
+run sudo -u "$APP_USER" bash -c "set -a; . '$ENV_FILE'; set +a; node '$APP_DIR/dist/cli.js' migrate"
 
 # --- 5. systemd ---------------------------------------------------------------
 log "Installing systemd unit"

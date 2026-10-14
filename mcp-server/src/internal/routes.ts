@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { SCOPES, isScope } from '../config.js';
-import { now } from '../store/db.js';
+import { now, TLS_MODES, type TlsMode } from '../store/db.js';
 import { constantTimeEqual, randomId, randomToken, sha256Hex } from '../crypto/seal.js';
 import { redirectHost } from '../oauth/routes.js';
 
@@ -11,7 +11,8 @@ const mailboxSchema = z.object({
   email: z.string().email().max(320).optional(),
   imap_host: z.string().min(1).optional(),
   imap_port: z.coerce.number().int().min(1).max(65535).optional(),
-  imap_secure: z.boolean().optional(),
+  imap_tls: z.enum(TLS_MODES as [string, ...string[]]).optional(),
+  smtp_tls: z.enum(TLS_MODES as [string, ...string[]]).optional(),
   smtp_host: z.string().min(1).optional(),
   smtp_port: z.coerce.number().int().min(1).max(65535).optional(),
   sealed: z.string().min(64), // base64 of ≥ 48 bytes
@@ -76,9 +77,10 @@ export function internalRoutes(deps: Deps): Hono {
       email: b.email ?? null,
       imap_host: b.imap_host ?? cfg.IMAP_HOST,
       imap_port: b.imap_port ?? cfg.IMAP_PORT,
-      imap_secure: b.imap_secure ?? cfg.IMAP_TLS,
+      imap_tls: (b.imap_tls as TlsMode | undefined) ?? (cfg.IMAP_TLS ? 'implicit' : 'none'),
       smtp_host: b.smtp_host ?? cfg.SMTP_HOST,
       smtp_port: b.smtp_port ?? cfg.SMTP_PORT,
+      smtp_tls: (b.smtp_tls as TlsMode | undefined) ?? (cfg.SMTP_STARTTLS ? 'starttls' : 'none'),
       sealed,
       scopes,
       client_id: ar.client_id,
@@ -106,9 +108,10 @@ export function internalRoutes(deps: Deps): Hono {
       email: b.email ?? null,
       imap_host: b.imap_host ?? cfg.IMAP_HOST,
       imap_port: b.imap_port ?? cfg.IMAP_PORT,
-      imap_secure: b.imap_secure ?? cfg.IMAP_TLS,
+      imap_tls: (b.imap_tls as TlsMode | undefined) ?? (cfg.IMAP_TLS ? 'implicit' : 'none'),
       smtp_host: b.smtp_host ?? cfg.SMTP_HOST,
       smtp_port: b.smtp_port ?? cfg.SMTP_PORT,
+      smtp_tls: (b.smtp_tls as TlsMode | undefined) ?? (cfg.SMTP_STARTTLS ? 'starttls' : 'none'),
       sealed,
       scopes,
       client_id: null,

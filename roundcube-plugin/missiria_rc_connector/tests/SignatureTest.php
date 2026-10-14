@@ -21,12 +21,13 @@ final class SignatureTest extends TestCase
         $sig = new rc_connector_signature(self::KEY);
         $now = 1_800_000_000;
         $ts  = (string) $now;
-        $good = hash_hmac('sha256', "alice@example.test|$ts|ana", self::KEY);
-        $this->assertTrue($sig->verifyContacts('alice@example.test', $ts, 'ana', $good, $now));
-        $this->assertTrue($sig->verifyContacts('alice@example.test', $ts, 'ana', $good, $now + 59));
-        $this->assertFalse($sig->verifyContacts('alice@example.test', $ts, 'ana', $good, $now + 61), 'expired');
-        $this->assertFalse($sig->verifyContacts('bob@example.test', $ts, 'ana', $good, $now), 'other user');
-        $this->assertFalse($sig->verifyContacts('alice@example.test', $ts, 'anb', $good, $now), 'other query');
+        $good = hash_hmac('sha256', "alice@example.test|imap.example.test|$ts|ana", self::KEY);
+        $this->assertTrue($sig->verifyContacts('alice@example.test', 'imap.example.test', $ts, 'ana', $good, $now));
+        $this->assertTrue($sig->verifyContacts('alice@example.test', 'imap.example.test', $ts, 'ana', $good, $now + 59));
+        $this->assertFalse($sig->verifyContacts('alice@example.test', 'imap.example.test', $ts, 'ana', $good, $now + 61), 'expired');
+        $this->assertFalse($sig->verifyContacts('bob@example.test', 'imap.example.test', $ts, 'ana', $good, $now), 'other user');
+        $this->assertFalse($sig->verifyContacts('alice@example.test', 'other.example.test', $ts, 'ana', $good, $now), 'other host');
+        $this->assertFalse($sig->verifyContacts('alice@example.test', 'imap.example.test', $ts, 'anb', $good, $now), 'other query');
     }
 
     public function testShortKeyRejected(): void

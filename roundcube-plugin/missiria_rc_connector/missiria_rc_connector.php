@@ -306,19 +306,20 @@ class missiria_rc_connector extends rcube_plugin
 
     // ---------------------------------------------------------- contacts API
 
-    /** GET ?_task=rcconnector&_action=contacts&user=&q=&ts=&sig=&limit= (called by the MCP server) */
+    /** GET ?_task=rcconnector&_action=contacts&user=&host=&q=&ts=&sig=&limit= (called by the MCP server) */
     private function contacts_endpoint()
     {
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: no-store');
         $user  = $this->in('user', rcube_utils::INPUT_GET);
+        $host  = $this->in('host', rcube_utils::INPUT_GET);
         $q     = $this->in('q', rcube_utils::INPUT_GET);
         $ts    = $this->in('ts', rcube_utils::INPUT_GET);
         $sig   = $this->in('sig', rcube_utils::INPUT_GET);
         $limit = min(50, max(1, (int) $this->in('limit', rcube_utils::INPUT_GET) ?: 20));
 
         try {
-            $valid = $user !== '' && $this->signature()->verifyContacts($user, $ts, $q, $sig);
+            $valid = $user !== '' && $host !== '' && $this->signature()->verifyContacts($user, $host, $ts, $q, $sig);
         } catch (Throwable $e) {
             $valid = false;
         }
@@ -331,16 +332,22 @@ class missiria_rc_connector extends rcube_plugin
         $db       = $this->rc->get_dbh();
         $users    = $db->table_name('users', true);
         $contacts = $db->table_name('contacts', true);
-        $res      = $db->query("SELECT `user_id` FROM $users WHERE `username` = ?", $user);
+        // One mailbox = one Roundcube user row (username + mail_host). Anything else is refused.
+        $res      = $db->query("SELECT `user_id` FROM $users WHERE `username` = ? AND `mail_host` = ?", $user, $host);
         $ids      = [];
         while ($row = $db->fetch_assoc($res)) {
             $ids[] = (int) $row['user_id'];
         }
+        if (count($ids) !== 1) {
+            http_response_code(count($ids) ? 409 : 404);
+            echo json_encode(['error' => count($ids) ? 'ambiguous_user' : 'unknown_user', 'contacts' => []]);
+            return;
+        }
         $out = [];
         if ($ids) {
             $like = '%' . addcslashes($q, '%_') . '%';
-            $sql  = "SELECT `name`, `email` FROM $contacts WHERE `del` <> 1 AND `user_id` IN (" . implode(',', $ids) . ") AND (`name` LIKE ? OR `email` LIKE ?) ORDER BY `name` LIMIT " . ($limit * 2);
-            $res  = $db->query($sql, $like, $like);
+            $sql  = "SELECT `name`, `email` FROM $contacts WHERE `del` <> 1 AND `user_id` = ? AND (`name` LIKE ? OR `email` LIKE ?) ORDER BY `name` LIMIT " . ($limit * 2);
+            $res  = $db->query($sql, $ids[0], $like, $like);
             while (($row = $db->fetch_assoc($res)) && count($out) < $limit) {
                 foreach (preg_split('/[,\s]+/', (string) $row['email'], -1, PREG_SPLIT_NO_EMPTY) as $email) {
                     if (count($out) >= $limit) {
@@ -363,16 +370,18 @@ class missiria_rc_connector extends rcube_plugin
         $sealed   = $sealer->seal($password);
         unset($password);
 
-        $imap = rc_connector_mailhost::imap((string) ($_SESSION['storage_host'] ?? ''), $_SESSION['storage_port'] ?? null, $_SESSION['storage_ssl'] ?? null);
-        $smtp = rc_connector_mailhost::smtp($this->rc->config->get('smtp_host', 'localhost'), $this->rc->config->get('smtp_port'), $imap['host']);
+        $rawHost = (string) ($_SESSION['storage_host'] ?? '');
+        $imap    = rc_connector_mailhost::imap($rawHost, $_SESSION['storage_port'] ?? null, $_SESSION['storage_ssl'] ?? null);
+        $smtp    = rc_connector_mailhost::smtp($this->rc->config->get('smtp_host', 'localhost'), $this->rc->config->get('smtp_port'), $imap['host'], $rawHost);
         $payload = [
-            'username'    => $this->rc->get_user_name(),
-            'imap_host'   => $imap['host'],
-            'imap_port'   => $imap['port'],
-            'imap_secure' => $imap['secure'],
-            'smtp_host'   => $smtp['host'],
-            'smtp_port'   => $smtp['port'],
-            'sealed'      => $sealed,
+            'username'  => $this->rc->get_user_name(),
+            'imap_host' => $imap['host'],
+            'imap_port' => $imap['port'],
+            'imap_tls'  => $imap['tls'],
+            'smtp_host' => $smtp['host'],
+            'smtp_port' => $smtp['port'],
+            'smtp_tls'  => $smtp['tls'],
+            'sealed'    => $sealed,
         ];
         $email = $this->rc->get_user_email();
         if ($email && strpos($email, '@') !== false) {

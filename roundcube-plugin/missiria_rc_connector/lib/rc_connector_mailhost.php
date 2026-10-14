@@ -6,28 +6,62 @@
  */
 class rc_connector_mailhost
 {
-    /** @return array{host:string, port:int, secure:bool} */
+    public const TLS_IMPLICIT = 'implicit';
+    public const TLS_STARTTLS = 'starttls';
+    public const TLS_NONE     = 'none';
+
+    /**
+     * Mirrors what Roundcube negotiated for this session: storage_ssl is 'ssl' (implicit),
+     * 'tls' (STARTTLS) or empty. Never downgrades: a TLS requirement in the config stays a requirement.
+     *
+     * @return array{host:string, port:int, tls:string}
+     */
     public static function imap(string $sessionHost, $sessionPort, $sessionSsl): array
     {
         $parsed = self::parse($sessionHost, 143);
         $port   = (int) ($sessionPort ?: $parsed['port']);
-        $secure = $sessionSsl === 'ssl' || $sessionSsl === true || $parsed['scheme'] === 'ssl' || $parsed['scheme'] === 'imaps' || $port === 993;
-        return ['host' => $parsed['host'], 'port' => $port, 'secure' => $secure];
+        if ($sessionSsl === 'ssl' || $sessionSsl === true || $parsed['scheme'] === 'ssl' || $parsed['scheme'] === 'imaps' || $port === 993) {
+            $tls = self::TLS_IMPLICIT;
+        } elseif ($sessionSsl === 'tls' || $parsed['scheme'] === 'tls') {
+            $tls = self::TLS_STARTTLS;
+        } else {
+            $tls = self::TLS_NONE;
+        }
+        return ['host' => $parsed['host'], 'port' => $port, 'tls' => $tls];
     }
 
-    /** @return array{host:string, port:int, secure:bool} secure = implicit TLS (465) */
-    public static function smtp($configHost, $configPort, string $imapHost): array
+    /**
+     * Same rules as rcube_smtp: per-IMAP-host arrays must contain the current host, otherwise fail closed.
+     * ssl:// or 465 = implicit TLS, tls:// = STARTTLS, anything else = what Roundcube itself uses (plain).
+     *
+     * @return array{host:string, port:int, tls:string}
+     * @throws InvalidArgumentException when no SMTP host is configured for this IMAP host
+     */
+    public static function smtp($configHost, $configPort, string $imapHost, ?string $rawSessionHost = null): array
     {
         if (is_array($configHost)) {
-            $configHost = $configHost[$imapHost] ?? reset($configHost);
+            if ($rawSessionHost !== null && array_key_exists($rawSessionHost, $configHost)) {
+                $configHost = $configHost[$rawSessionHost];
+            } elseif (array_key_exists($imapHost, $configHost)) {
+                $configHost = $configHost[$imapHost];
+            } else {
+                throw new InvalidArgumentException('No SMTP server configured for IMAP host ' . $imapHost);
+            }
         }
         $host = str_replace('%h', $imapHost, (string) $configHost);
-        if ($host === '' || $host === 'localhost' && $configHost === '') {
+        if (trim($host) === '') {
             $host = 'localhost';
         }
         $parsed = self::parse($host, 587);
         $port   = (int) ($configPort ?: $parsed['port']);
-        return ['host' => $parsed['host'], 'port' => $port, 'secure' => $parsed['scheme'] === 'ssl' || $parsed['scheme'] === 'smtps' || $port === 465];
+        if ($parsed['scheme'] === 'ssl' || $parsed['scheme'] === 'smtps' || $port === 465) {
+            $tls = self::TLS_IMPLICIT;
+        } elseif ($parsed['scheme'] === 'tls') {
+            $tls = self::TLS_STARTTLS;
+        } else {
+            $tls = self::TLS_NONE;
+        }
+        return ['host' => $parsed['host'], 'port' => $port, 'tls' => $tls];
     }
 
     /** @return array{scheme:string, host:string, port:int} */
@@ -45,7 +79,7 @@ class rc_connector_mailhost
             return ['scheme' => '', 'host' => 'localhost', 'port' => $defaultPort];
         }
         $scheme = strtolower($u['scheme'] ?? '');
-        if ($scheme === 'tcp' || $scheme === 'tls') {
+        if ($scheme === 'tcp') {
             $scheme = '';
         }
         $port = isset($u['port']) ? (int) $u['port'] : ($scheme === 'ssl' || $scheme === 'imaps' || $scheme === 'smtps' ? ($defaultPort === 143 ? 993 : 465) : $defaultPort);

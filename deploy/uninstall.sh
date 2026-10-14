@@ -25,7 +25,7 @@ if [[ -n "$RC_DIR" ]]; then
   sed -i "/missiria_rc_connector/d" "$RC_DIR/config/config.inc.php"
   systemctl reload "php*-fpm" 2>/dev/null || true
 fi
-rm -rf /opt/missiria-rc-connector
+rm -rf /opt/missiria-rc-connector   # src (root) + app (rcmcp)
 if [[ $KEEP -eq 0 ]]; then
   rm -rf /var/lib/missiria-rc-connector /etc/missiria-rc-connector /var/log/missiria-rc-connector
   userdel rcmcp 2>/dev/null || true
