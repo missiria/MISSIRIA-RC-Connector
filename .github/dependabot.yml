@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /mcp-server
+    schedule: { interval: weekly }
+    groups:
+      dev: { dependency-type: development }
+  - package-ecosystem: composer
+    directory: /roundcube-plugin/missiria_rc_connector
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

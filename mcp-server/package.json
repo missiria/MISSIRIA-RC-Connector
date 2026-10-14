@@ -1,0 +1,43 @@
+{
+  "name": "missiria-rc-connector",
+  "version": "0.1.0",
+  "description": "MCP server + OAuth 2.1 authorization server for the MISSIRIA RC Connector (Roundcube)",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "bin": { "rc-connector": "dist/cli.js" },
+  "main": "dist/server.js",
+  "files": ["dist", "README.md"],
+  "repository": { "type": "git", "url": "https://github.com/missiria/MISSIRIA-RC-Connector.git", "directory": "mcp-server" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "hono": "^4.13.13",
+    "html-to-text": "^10.0.1",
+    "imapflow": "^2.4.0",
+    "jose": "^6.2.12",
+    "libsodium-wrappers": "^0.8.4",
+    "mailparser": "^3.9.38",
+    "nodemailer": "^10.1.0",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "^9.0.4",
+    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^7.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.4"
+  }
+}

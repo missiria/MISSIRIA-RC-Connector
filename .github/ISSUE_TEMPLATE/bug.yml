@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [roundcube-plugin, mcp-server, deploy/install, docs]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: connector version, Roundcube version, PHP, Node, OS
+      placeholder: "rc-connector 1.0.0 · Roundcube 1.6.9 · PHP 8.2 · Node 22.14 · Ubuntu 22.04"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: AI platform / client
+      placeholder: "ChatGPT connector, Claude.ai, Claude Code, Cursor…"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`journalctl -u missiria-rc-connector -n 50` and Roundcube errors log. Redact addresses and tokens."
+      render: shell

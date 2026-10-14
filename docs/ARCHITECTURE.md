@@ -17,7 +17,7 @@ Two components, one repository, one install script.
 
 ```
 ┌──────────────┐   OAuth 2.1 + MCP (HTTPS)   ┌───────────────────────────┐
-│ AI platform  │ ─────────────────────────▶ │ mcp-server (Node 20, TS)   │
+│ AI platform  │ ─────────────────────────▶ │ mcp-server (Node 22, TS)   │
 │ ChatGPT /    │ ◀───────────────────────── │ mcp.example.com (nginx)    │
 │ Claude / ... │                             │  • OAuth 2.1 AS (PKCE,DCR) │
 └──────────────┘                             │  • MCP Streamable HTTP     │
@@ -51,7 +51,7 @@ logged-in Roundcube session:
 The plugin stores **nothing secret** in the Roundcube database. The only table
 it owns (`rc_connector_audit_cache`) is an optional local cache of audit rows.
 
-### Component 2 — `mcp-server` (Node 20 LTS, TypeScript)
+### Component 2 — `mcp-server` (Node 22 LTS, TypeScript)
 
 | Module | Role |
 |---|---|
@@ -59,7 +59,7 @@ it owns (`rc_connector_audit_cache`) is an optional local cache of audit rows.
 | `internal/` | Loopback-only API used by the plugin: `POST /internal/grants`, `POST /internal/pats`, `GET /internal/grants?user=`, `DELETE /internal/grants/:id`, `GET /internal/audit?user=`. Authenticated with `X-Internal-Key`. |
 | `mcp/` | `@modelcontextprotocol/sdk` server. Streamable HTTP at `/mcp`. Bearer = OAuth access token or `rcc_` PAT. Returns `WWW-Authenticate: Bearer resource_metadata=…` on 401 so clients discover OAuth automatically. |
 | `mail/` | `imapflow` + `nodemailer` + `mailparser`. One pooled IMAP connection per grant, idle-closed after 5 min. Credentials unsealed in memory only when a connection opens. |
-| `store/` | SQLite (`better-sqlite3`): clients, auth requests, grants (sealed blob), tokens (hashed), audit. |
+| `store/` | SQLite via Node's built-in `node:sqlite` (no native build): clients, auth requests, grants (sealed blob), tokens (hashed), audit. |
 | `cli` | `rc-connector keygen`, `rc-connector migrate`, `rc-connector stdio --url --token` (local proxy for stdio-only clients). |
 
 ### Tools exposed over MCP

@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a tool, scope, platform or install improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected scope
+      options: [mail:read, mail:write, mail:send, contacts:read, none / infra]

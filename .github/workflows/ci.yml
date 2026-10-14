@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: mcp-server (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    defaults:
+      run:
+        working-directory: mcp-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm run build
+      - run: npm test
+
+  php:
+    name: roundcube-plugin (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    continue-on-error: true   # until the plugin lands (EKSN-0151)
+    strategy:
+      matrix:
+        php: ['7.4', '8.3']
+    defaults:
+      run:
+        working-directory: roundcube-plugin/missiria_rc_connector
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: sodium, mbstring, curl, json
+          tools: composer:v2
+      - run: composer validate --strict
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer test
+
+  shell:
+    name: deploy scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: for f in deploy/*.sh; do bash -n "$f"; done
+      - uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: ./deploy

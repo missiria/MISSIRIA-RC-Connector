@@ -14,7 +14,7 @@ Gmail and Outlook.
 - One **Roundcube plugin** (`roundcube-plugin/missiria_rc_connector`) that adds
   a consent screen, CLI token creation and a grant / audit page under
   Settings → AI Connectors.
-- One **MCP server** (`mcp-server/`, Node 20 + TypeScript) with OAuth 2.1
+- One **MCP server** (`mcp-server/`, Node 22 + TypeScript) with OAuth 2.1
   (PKCE + Dynamic Client Registration), Streamable HTTP transport, and IMAP /
   SMTP tools.
 - One **install script** and documented commands for a stock nginx + PHP-FPM
@@ -68,7 +68,7 @@ docs/                                     ARCHITECTURE, INSTALL, CONNECT, ROADMA
 | Component | Supported |
 |---|---|
 | Roundcube | 1.5, 1.6 (PHP 7.4 – 8.3, `sodium` extension) |
-| Node.js | 20 LTS, 22 |
+| Node.js | 22.13+ or 24 LTS (built-in `node:sqlite`, no native modules) |
 | IMAP / SMTP | Any server Roundcube can log into (Dovecot + Postfix tested) |
 | MCP | Streamable HTTP (2025-03-26+), stdio via local proxy |
 

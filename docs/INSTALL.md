@@ -34,7 +34,7 @@ grep -oE "RCMAIL_VERSION', '[^']+" "$RC_DIR/program/include/iniset.php"
 systemctl is-active dovecot postfix
 ss -ltnp | grep -E ':(143|993|25|465|587)\b'
 
-# Existing Node (the connector needs 20 LTS or newer)
+# Existing Node (the connector needs 22.13 or newer)
 node -v 2>/dev/null || echo "no node"
 ```
 
@@ -69,16 +69,17 @@ curl -sI -H 'User-Agent: ChatGPT-User/1.0' https://MCP_HOST/ | head -1   # must 
 
 ---
 
-## 2. Node.js 20 LTS
+## 2. Node.js 22 LTS (or 24)
 
 ```bash
-# NodeSource (system-wide, works with systemd)
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y nodejs build-essential python3   # build tools for better-sqlite3
+# NodeSource (system-wide, works with systemd). No compiler needed: the connector
+# uses Node's built-in SQLite (node:sqlite), so there are no native modules to build.
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y nodejs
 node -v && npm -v
 ```
 
-**Check**: `node -v` prints `v20.x` or newer.
+**Check**: `node -v` prints `v22.13` or newer (`v24.x` also fine).
 
 ---
 
@@ -349,5 +350,5 @@ It is idempotent: re-running updates code, keeps keys, env and grants.
 | Consent page says "Server unreachable" | `INTERNAL_KEY` mismatch or service down | Compare key in env vs plugin config; `systemctl status`. |
 | `tools/call` → `IMAP auth failed` after password change | Sealed credentials hold the old password | User revokes grant and re-consents. Expected by design. |
 | SSE stream closes after 60 s | nginx `proxy_read_timeout` default | Use shipped vhost (`3600s`, `proxy_buffering off`). |
-| `better-sqlite3` build error on `npm ci` | Missing compiler | `apt install build-essential python3`. |
+| `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` on start | Node older than 22.13 | Step 2: install Node 22 LTS or 24. |
 | Roundcube shows blank settings page | PHP `sodium` extension missing | `apt install php8.x-sodium && systemctl reload php*-fpm`. |
