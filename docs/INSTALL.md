@@ -327,7 +327,7 @@ systemctl reload nginx php*-fpm; userdel rcmcp
 
 ## 9. One-shot installer
 
-`deploy/install.sh` runs steps 2–6 non-interactively:
+`deploy/install.sh` runs steps 2–6 non-interactively (Debian/Ubuntu):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/missiria/MISSIRIA-RC-Connector/main/deploy/install.sh -o install.sh
@@ -335,7 +335,9 @@ less install.sh      # read it first
 bash install.sh --mcp-host MCP_HOST --webmail-host WEBMAIL_HOST --rc-dir RC_DIR --email ADMIN_EMAIL
 ```
 
+Flags: `--ref <tag|branch>` (default `main`), `--no-certbot`, `--no-plugin`, `--dry-run`.
 It is idempotent: re-running updates code, keeps keys, env and grants.
+`deploy/uninstall.sh --mcp-host MCP_HOST --rc-dir RC_DIR [--keep-data]` reverses it.
 
 ---
 

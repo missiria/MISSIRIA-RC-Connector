@@ -1,0 +1,10 @@
+/var/log/missiria-rc-connector/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su rcmcp rcmcp
+}
