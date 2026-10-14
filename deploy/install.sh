@@ -102,7 +102,8 @@ else
 fi
 NODE_PATH_PREFIX="$(dirname "$NODE_BIN")"
 # npm must come from the same runtime as node
-as_app_node() { run sudo -u "$APP_USER" env "PATH=$NODE_PATH_PREFIX:/usr/bin:/bin" bash -c "$1"; }
+# rcmcp's home is root-owned on purpose; give npm a writable HOME and cache inside the app dir.
+as_app_node() { run sudo -u "$APP_USER" env "PATH=$NODE_PATH_PREFIX:/usr/bin:/bin" "HOME=$APP_DIR" "npm_config_cache=$APP_DIR/.npm-cache" "npm_config_update_notifier=false" bash -c "$1"; }
 
 # --- 2. Directories ---------------------------------------------------------
 run install -d -o root -g "$APP_USER" -m 750 "$APP_HOME"
@@ -127,7 +128,7 @@ run chmod -R g-w,o-rwx "$SRC_DIR"
 
 # npm (and any package scripts) run only as rcmcp, inside its own copy.
 log "Building mcp-server in $APP_DIR"
-run rsync -a --delete --exclude node_modules --exclude dist "$SRC_DIR/mcp-server/" "$APP_DIR/"
+run rsync -a --delete --exclude node_modules --exclude dist --exclude .npm-cache "$SRC_DIR/mcp-server/" "$APP_DIR/"
 run chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 as_app_node "cd '$APP_DIR' && npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev --no-audit --no-fund"
 
