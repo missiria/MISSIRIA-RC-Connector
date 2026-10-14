@@ -224,24 +224,33 @@ if [[ $PLUGIN -eq 1 ]]; then
   fi
   id -u "$WEB_USER" >/dev/null 2>&1 || die "web user '$WEB_USER' does not exist (pass --web-user)"
   log "Installing Roundcube plugin into $PLUGIN_DST (readable by $WEB_USER)"
-  run install -d "$PLUGIN_DST"
-  run rsync -a --delete --exclude config.inc.php --exclude tests --exclude vendor --exclude phpunit.xml.dist "$PLUGIN_SRC/" "$PLUGIN_DST/"
+  WEB_GROUP="$(id -gn "$WEB_USER")"
+  # Never operate through symlinks under the web root: a planted link could redirect chown/chmod.
+  [[ -L "$PLUGIN_DST" || -L "$PLUGIN_DST/config.inc.php" ]] && die "$PLUGIN_DST (or its config.inc.php) is a symlink; refusing to install over it"
+  run install -d -o root -g root -m 755 "$PLUGIN_DST"
+  run rsync -a --delete --no-links --exclude config.inc.php --exclude tests --exclude vendor --exclude phpunit.xml.dist "$PLUGIN_SRC/" "$PLUGIN_DST/"
+  # Code is root-owned and world-readable (no secrets); config.inc.php is handled separately below.
+  run chown -R root:root "$PLUGIN_DST"
+  run find "$PLUGIN_DST" ! -name config.inc.php -type d -exec chmod 755 {} +
+  run find "$PLUGIN_DST" ! -name config.inc.php -type f -exec chmod 644 {} +
   if [[ ! -f "$PLUGIN_DST/config.inc.php" ]]; then
-    log "Writing plugin config.inc.php"
+    log "Writing plugin config.inc.php (root:$WEB_GROUP 0640)"
     if [[ $DRY -eq 0 ]]; then
+      cfg_tmp="$(mktemp /root/.rc-connector-cfg.XXXXXX)"
       sed -e "s|https://mcp.example.com|https://$MCP_HOST|" \
           -e "s|http://127.0.0.1:8787|http://127.0.0.1:$PORT|" \
           -e "s|\['rc_connector_internal_key'\] = ''|['rc_connector_internal_key'] = '$INTERNAL_KEY'|" \
           -e "s|\['rc_connector_server_pubkey'\] = ''|['rc_connector_server_pubkey'] = '$PUBKEY'|" \
-          "$PLUGIN_SRC/config.inc.php.dist" > "$PLUGIN_DST/config.inc.php"
+          "$PLUGIN_SRC/config.inc.php.dist" > "$cfg_tmp"
+      # install(1) creates the destination with the final owner/mode; no window where it is world-readable.
+      install -o root -g "$WEB_GROUP" -m 640 "$cfg_tmp" "$PLUGIN_DST/config.inc.php"
+      rm -f "$cfg_tmp"
     fi
   else
     log "Plugin config already present, keeping it"
+    run chown root:"$WEB_GROUP" "$PLUGIN_DST/config.inc.php"
+    run chmod 640 "$PLUGIN_DST/config.inc.php"
   fi
-  # root owns the code (read-only for the web user); only config.inc.php holds a secret → root:<web group> 0640
-  run chown -R root:root "$PLUGIN_DST"
-  run chmod -R u=rwX,go=rX "$PLUGIN_DST"
-  [[ -f "$PLUGIN_DST/config.inc.php" ]] && run chown root:"$(id -gn "$WEB_USER")" "$PLUGIN_DST/config.inc.php" && run chmod 640 "$PLUGIN_DST/config.inc.php"
 
   if grep -q "missiria_rc_connector" "$RC_DIR/config/config.inc.php"; then
     log "Plugin already enabled in Roundcube config"
