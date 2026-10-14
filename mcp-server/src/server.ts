@@ -2,10 +2,14 @@ import { serve } from '@hono/node-server';
 import { buildDeps } from './bootstrap.js';
 import { createApp } from './app.js';
 import { mcpRoutes } from './mcp/routes.js';
+import { SessionPool } from './mail/pool.js';
+import { NodemailerSender } from './mail/smtp.js';
 import { VERSION } from './version.js';
 
 export function startServer(env: NodeJS.ProcessEnv = process.env) {
   const deps = buildDeps(env, { requireKeys: false });
+  deps.pool = new SessionPool(deps);
+  deps.smtp = new NodemailerSender();
   const app = createApp(deps, mcpRoutes);
   const server = serve({ fetch: app.fetch, port: deps.cfg.PORT, hostname: deps.cfg.BIND }, (info) => {
     deps.log.info({ version: VERSION, bind: info.address, port: info.port, publicUrl: deps.cfg.PUBLIC_URL, keysLoaded: Boolean(deps.keys) }, 'MISSIRIA RC Connector listening');
@@ -13,7 +17,7 @@ export function startServer(env: NodeJS.ProcessEnv = process.env) {
   const shutdown = (signal: string) => {
     deps.log.info({ signal }, 'shutting down');
     server.close(() => {
-      deps.store.close();
+      void deps.pool?.closeAll().finally(() => deps.store.close());
       process.exit(0);
     });
     setTimeout(() => process.exit(1), 5000).unref();

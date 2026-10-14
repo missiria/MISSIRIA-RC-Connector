@@ -56,6 +56,19 @@ export class SessionPool {
     return client;
   }
 
+  /** Unseals the mailbox password for a short-lived use (SMTP submit), wiping it afterwards. */
+  async withSecret<T>(grantId: string, fn: (password: string) => Promise<T>): Promise<T> {
+    const grant = this.deps.store.getGrant(grantId);
+    if (!grant || grant.revoked_at) throw new MailError('imap_auth_failed', 'grant revoked');
+    if (!this.deps.keys) throw new MailError('imap_unavailable', 'server key pair not loaded');
+    const secret = await unseal(grant.sealed, this.deps.keys);
+    try {
+      return await fn(Buffer.from(secret).toString('utf8'));
+    } finally {
+      wipe(secret);
+    }
+  }
+
   release(grantId: string): void {
     const e = this.entries.get(grantId);
     if (e) e.inFlight = Math.max(0, e.inFlight - 1);

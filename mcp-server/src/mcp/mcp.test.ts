@@ -59,8 +59,9 @@ describe('MCP endpoint', () => {
   it('initializes, lists tools and runs read tools with the unsealed password', async () => {
     const { client, deps, f } = await setup();
     const tools = await client.listTools();
-    const names = tools.tools.map((t) => t.name).sort();
-    expect(names).toEqual(['fetch', 'get_attachment', 'get_message', 'get_quota', 'get_thread', 'list_folders', 'search', 'search_messages']);
+    const names = tools.tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['fetch', 'get_attachment', 'get_message', 'get_quota', 'get_thread', 'list_folders', 'search', 'search_messages']));
+    expect(names).toHaveLength(15);
 
     const folders = await client.callTool({ name: 'list_folders', arguments: {} });
     expect(JSON.parse((folders.content as Array<{ text: string }>)[0]!.text).folders[0].path).toBe('INBOX');
