@@ -117,6 +117,10 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE audit ADD COLUMN account_user TEXT;
   CREATE INDEX IF NOT EXISTS audit_account_user_created ON audit(account_user, created_at DESC);
   `,
+  // v4 (ADR-003): a grant may reach every mailbox of the server through the master credential.
+  `
+  ALTER TABLE grants ADD COLUMN all_mailboxes INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** Data steps that run right after the SQL of the same version (1-based). */
@@ -222,6 +226,8 @@ export interface GrantRow {
   scopes: Scope[];
   client_id: string | null;
   label: string | null;
+  /** ADR-003: this connection may open any mailbox listed in the server directory (admin-only). */
+  all_mailboxes: boolean;
   created_at: number;
   last_used_at: number | null;
   revoked_at: number | null;
@@ -245,6 +251,8 @@ export interface AccountRow {
   created_at: number;
   last_used_at: number | null;
   revoked_at: number | null;
+  /** ADR-003: not stored; synthesised from the server directory and opened with the master credential. */
+  virtual?: true;
 }
 
 export interface LinkCodeRow {
@@ -389,18 +397,18 @@ export class Store {
 
   // ---- grants
   /** Inserts a grant together with its primary account (same mailbox facts). */
-  insertGrant(g: Omit<GrantRow, 'created_at' | 'last_used_at' | 'revoked_at'>, alias?: string): GrantRow {
-    const row: GrantRow = { ...g, created_at: now(), last_used_at: null, revoked_at: null };
+  insertGrant(g: Omit<GrantRow, 'created_at' | 'last_used_at' | 'revoked_at' | 'all_mailboxes'> & { all_mailboxes?: boolean }, alias?: string): GrantRow {
+    const row: GrantRow = { ...g, all_mailboxes: g.all_mailboxes ?? false, created_at: now(), last_used_at: null, revoked_at: null };
     return this.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO grants(id, kind, username, email, imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls, sealed, scopes, client_id, label, created_at)
-           VALUES (@id, @kind, @username, @email, @imap_host, @imap_port, @imap_tls, @smtp_host, @smtp_port, @smtp_tls, @sealed, @scopes, @client_id, @label, @created_at)`,
+          `INSERT INTO grants(id, kind, username, email, imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls, sealed, scopes, client_id, label, all_mailboxes, created_at)
+           VALUES (@id, @kind, @username, @email, @imap_host, @imap_port, @imap_tls, @smtp_host, @smtp_port, @smtp_tls, @sealed, @scopes, @client_id, @label, @all_mailboxes, @created_at)`,
         )
         .run({
           id: row.id, kind: row.kind, username: row.username, email: row.email, imap_host: row.imap_host, imap_port: row.imap_port,
           imap_tls: row.imap_tls, smtp_host: row.smtp_host, smtp_tls: row.smtp_tls, smtp_port: row.smtp_port, sealed: row.sealed, scopes: row.scopes.join(' '),
-          client_id: row.client_id, label: row.label, created_at: row.created_at,
+          client_id: row.client_id, label: row.label, all_mailboxes: row.all_mailboxes ? 1 : 0, created_at: row.created_at,
         });
       this.insertAccount({
         grant_id: row.id, alias: alias ?? defaultAlias(row.username, row.email), username: row.username, email: row.email,
@@ -498,9 +506,13 @@ export class Store {
     return r.n;
   }
 
+  private grant<T extends { scopes: string; all_mailboxes: number }>(r: T): Omit<T, 'scopes' | 'all_mailboxes'> & { scopes: Scope[]; all_mailboxes: boolean } {
+    return { ...r, scopes: r.scopes.split(' ').filter(Boolean) as Scope[], all_mailboxes: r.all_mailboxes === 1 };
+  }
+
   getGrant(id: string): GrantRow | undefined {
-    const r = this.db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as unknown as (Omit<GrantRow, 'scopes'> & { scopes: string }) | undefined;
-    return r ? { ...r, scopes: r.scopes.split(' ').filter(Boolean) as Scope[] } : undefined;
+    const r = this.db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as unknown as (Omit<GrantRow, 'scopes' | 'all_mailboxes'> & { scopes: string; all_mailboxes: number }) | undefined;
+    return r ? this.grant(r) : undefined;
   }
 
   listGrantsForUser(username: string): Array<GrantRow & { client_name: string | null }> {
@@ -509,8 +521,13 @@ export class Store {
         `SELECT g.*, c.client_name FROM grants g LEFT JOIN clients c ON c.client_id = g.client_id
          WHERE g.username = ? AND g.revoked_at IS NULL ORDER BY g.created_at DESC`,
       )
-      .all(username) as unknown as Array<Omit<GrantRow, 'scopes'> & { scopes: string; client_name: string | null }>;
-    return rows.map((r) => ({ ...r, scopes: r.scopes.split(' ').filter(Boolean) as Scope[] }));
+      .all(username) as unknown as Array<Omit<GrantRow, 'scopes' | 'all_mailboxes'> & { scopes: string; all_mailboxes: number; client_name: string | null }>;
+    return rows.map((r) => this.grant(r));
+  }
+
+  /** ADR-003: switches server-wide reach for a live grant. Returns false if unknown or revoked. */
+  setGrantAllMailboxes(id: string, enabled: boolean): boolean {
+    return this.db.prepare('UPDATE grants SET all_mailboxes=? WHERE id=? AND revoked_at IS NULL').run(enabled ? 1 : 0, id).changes === 1;
   }
 
   touchGrant(id: string): void {

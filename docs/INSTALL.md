@@ -331,6 +331,44 @@ systemctl reload nginx php*-fpm; userdel rcmcp
 
 ---
 
+## 8b. Reach every mailbox (optional, Dovecot, admins only)
+
+By default a connection reaches the mailboxes its owner linked one by one
+(docs/CONNECT.md, "Several mailboxes, one connector"). If you administer the
+server and want **one connection that reads every mailbox by name**, enable
+ADR-003 mode. It creates a Dovecot master user whose secret only the connector
+can read, and a mailbox directory refreshed hourly.
+
+```bash
+cd /opt/missiria-rc-connector/src
+bash deploy/enable-all-mailboxes.sh --admin contact@example.com        # comma-separate several admins
+# later:
+bash deploy/enable-all-mailboxes.sh --admin contact@example.com --rotate   # new master secret
+bash deploy/enable-all-mailboxes.sh --disable                             # remove everything
+```
+
+The script reloads Dovecot (never restarts it), restarts the connector, and
+self-tests one master login plus one refused login for a non-existent mailbox.
+Then, logged in to Roundcube as an admin: Settings → AI Connectors → on the
+connection row click **All mailboxes (N)** and confirm. Non-admin users never
+see that button.
+
+What it writes:
+
+| Path | Purpose |
+|---|---|
+| `/etc/dovecot/master-users` | `rccmaster:{SHA512-CRYPT}…` (root:dovecot 0640) |
+| `/etc/dovecot/conf.d/auth-rcc-master.conf` | `auth_master_user_separator = *` + master passdb with `pass = yes` |
+| `/etc/missiria-rc-connector/master.secret` | the secret (root:rcmcp 0640) |
+| `/etc/missiria-rc-connector/mailboxes` | one login per line from `doveadm user '*'`; optional second column = alias override |
+| `/etc/cron.hourly/missiria-rc-connector-mailboxes` | refreshes the list |
+| env file | `ALL_MAILBOXES_USER`, `ALL_MAILBOXES_SECRET_FILE`, `ALL_MAILBOXES_SEPARATOR`, `ALL_MAILBOXES_ADMINS`, `MAILBOX_DIRECTORY` |
+
+Read `docs/SECURITY-MODEL.md` §2b before enabling it: a compromise of the
+connector host then exposes every mailbox, not only the connected ones.
+
+---
+
 ## 9. One-shot installer
 
 `deploy/install.sh` runs steps 2–6 non-interactively (Debian/Ubuntu):

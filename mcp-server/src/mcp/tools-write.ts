@@ -65,8 +65,9 @@ async function submit(ctx: ToolContext, tool: string, msg: OutgoingMessage, alia
     throw new ToolError('rate_limited', `send limit of ${deps.cfg.SEND_RATE_PER_HOUR} messages per hour reached for this connection`);
   }
   try {
-    await deps.pool!.withSecret(principal.grantId, alias, (pass) =>
-      deps.smtp!.send({ host: account.smtp_host, port: account.smtp_port, tls: account.smtp_tls, user: account.username, pass }, raw, { from: msg.from.address, to: recipients.map((r) => r.address) }),
+    // `login` is the wire login: the mailbox itself, or the master form for server mailboxes (ADR-003).
+    await deps.pool!.withSecret(principal.grantId, alias, (pass, login) =>
+      deps.smtp!.send({ host: login.smtp_host, port: login.smtp_port, tls: login.smtp_tls, user: login.username, pass }, raw, { from: msg.from.address, to: recipients.map((r) => r.address) }),
     );
   } catch (e) {
     deps.store.releaseSend(principal.grantId);

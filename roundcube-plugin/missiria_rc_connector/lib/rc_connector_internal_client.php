@@ -139,6 +139,35 @@ class rc_connector_internal_client
         return $r['status'] === 200 && !empty($r['data']['unlinked']);
     }
 
+    // ---- ADR-003: server-wide reach
+
+    /** @return array{available:bool, configured:bool, count:int} (all false/0 when the server cannot be reached) */
+    public function allMailboxesInfo(string $user): array
+    {
+        $r = $this->request('GET', '/all-mailboxes', null, ['user' => $user]);
+        if ($r['status'] === 200 && is_array($r['data'])) {
+            return ['available' => !empty($r['data']['available']), 'configured' => !empty($r['data']['configured']), 'count' => (int) ($r['data']['count'] ?? 0)];
+        }
+        return ['available' => false, 'configured' => false, 'count' => 0];
+    }
+
+    /**
+     * Switches "all mailboxes" on/off for a connection the user owns.
+     * Throws rc_connector_link_exception('not_admin' | 'not_configured' | 'not_found') on a 4xx.
+     */
+    public function setAllMailboxes(string $grantId, string $user, bool $enabled): array
+    {
+        $r = $this->request('POST', '/grants/' . rawurlencode($grantId) . '/all-mailboxes', ['user' => $user, 'enabled' => $enabled]);
+        if ($r['status'] === 200 && is_array($r['data'])) {
+            return $r['data'];
+        }
+        $err = is_array($r['data']) ? (string) ($r['data']['error'] ?? '') : '';
+        if ($r['status'] >= 400 && $r['status'] < 500 && $err !== '') {
+            throw new rc_connector_link_exception($err, $r['status']);
+        }
+        throw new RuntimeException('all-mailboxes switch failed: ' . $this->describe($r));
+    }
+
     public function listAudit(string $user, int $limit): array
     {
         $r = $this->request('GET', '/audit', null, ['user' => $user, 'limit' => $limit]);

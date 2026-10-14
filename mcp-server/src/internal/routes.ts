@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Deps } from '../deps.js';
-import { SCOPES, isScope } from '../config.js';
+import { SCOPES, isScope, isAllMailboxesAdmin } from '../config.js';
 import { now, TLS_MODES, isLoopbackHost, isAlias, defaultAlias, type TlsMode } from '../store/db.js';
 import { constantTimeEqual, randomId, randomToken, sha256Hex } from '../crypto/seal.js';
 import { randomInt } from 'node:crypto';
@@ -75,7 +75,17 @@ export function internalRoutes(deps: Deps): Hono {
     await next();
   });
 
-  app.get('/healthz', (c) => c.json({ ok: true, keysLoaded: Boolean(deps.keys), scopes: [...SCOPES] }));
+  app.get('/healthz', (c) =>
+    c.json({
+      ok: true,
+      keysLoaded: Boolean(deps.keys),
+      scopes: [...SCOPES],
+      allMailboxes: { configured: Boolean(deps.allMailboxes), count: deps.allMailboxes?.directory.count ?? 0, admins: cfg.ALL_MAILBOXES_ADMINS.length },
+    }),
+  );
+
+  // ADR-003: may this user switch a connection to server-wide reach?
+  const allMailboxesAvailable = (user: string) => Boolean(deps.allMailboxes) && isAllMailboxesAdmin(cfg, user);
 
   app.get('/auth-requests/:id', (c) => {
     const ar = store.getAuthRequest(c.req.param('id'));
@@ -96,7 +106,7 @@ export function internalRoutes(deps: Deps): Hono {
 
   // Called by the Roundcube plugin when the user approves the consent screen.
   app.post('/grants', async (c) => {
-    const parsed = mailboxSchema.extend({ request_id: z.string().min(1) }).safeParse(await c.req.json().catch(() => ({})));
+    const parsed = mailboxSchema.extend({ request_id: z.string().min(1), all_mailboxes: z.boolean().optional() }).safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: 'invalid_body', detail: parsed.error.issues[0]?.message }, 400);
     const b = parsed.data;
     const ar = store.getAuthRequest(b.request_id);
@@ -110,11 +120,15 @@ export function internalRoutes(deps: Deps): Hono {
     if (scopes.length === 0 || !scopes.every((s) => requested.has(s))) return c.json({ error: 'invalid_scopes', detail: 'granted scopes must be a non-empty subset of requested scopes' }, 400);
     const mb = resolveMailbox(cfg, b);
     if (!mb.ok) return c.json({ error: mb.error, detail: mb.detail }, 400);
+    if (b.all_mailboxes) {
+      if (!deps.allMailboxes) return c.json({ error: 'not_configured', detail: 'server-wide mailbox access is not configured on this server' }, 409);
+      if (!isAllMailboxesAdmin(cfg, b.username)) return c.json({ error: 'not_admin', detail: 'this mailbox may not enable server-wide access' }, 403);
+    }
 
-    const grant = store.insertGrant({ id: randomId(), kind: 'oauth', username: b.username, email: b.email ?? null, ...mb.value, scopes, client_id: ar.client_id, label: null });
+    const grant = store.insertGrant({ id: randomId(), kind: 'oauth', username: b.username, email: b.email ?? null, ...mb.value, scopes, client_id: ar.client_id, label: null, all_mailboxes: Boolean(b.all_mailboxes) });
     const code = randomToken(32);
     store.approveAuthRequest(ar.id, grant.id, sha256Hex(code), now() + cfg.CODE_TTL_SECONDS);
-    log.info({ grantId: grant.id, username: b.username, scopes }, 'grant created via consent');
+    log.info({ grantId: grant.id, username: b.username, scopes, allMailboxes: grant.all_mailboxes }, 'grant created via consent');
     return c.json({ code, grant_id: grant.id, callback: `${cfg.PUBLIC_URL}/oauth/callback?req=${encodeURIComponent(ar.id)}&code=${encodeURIComponent(code)}` }, 201);
   });
 
@@ -145,8 +159,32 @@ export function internalRoutes(deps: Deps): Hono {
         created_at: g.created_at,
         last_used_at: g.last_used_at,
         accounts: store.listAccounts(g.id).map(accountView),
+        all_mailboxes: g.all_mailboxes && Boolean(deps.allMailboxes),
+        all_mailboxes_available: allMailboxesAvailable(user),
+        directory_count: deps.allMailboxes?.directory.count ?? 0,
       })),
     );
+  });
+
+  // ADR-003: may this user enable server-wide reach, and how many mailboxes would that cover?
+  app.get('/all-mailboxes', (c) => {
+    const user = c.req.query('user');
+    if (!user) return c.json({ error: 'user required' }, 400);
+    return c.json({ configured: Boolean(deps.allMailboxes), available: allMailboxesAvailable(user), count: deps.allMailboxes?.directory.count ?? 0 });
+  });
+
+  // ADR-003: switch server-wide reach on/off for one connection. Owner only, admins only.
+  app.post('/grants/:id/all-mailboxes', async (c) => {
+    const parsed = z.object({ user: z.string().min(1), enabled: z.boolean() }).safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'invalid_body', detail: parsed.error.issues[0]?.message }, 400);
+    const g = store.getGrant(c.req.param('id'));
+    if (!g || g.revoked_at || g.username !== parsed.data.user) return c.json({ error: 'not_found' }, 404);
+    if (!deps.allMailboxes) return c.json({ error: 'not_configured', detail: 'server-wide mailbox access is not configured on this server' }, 409);
+    if (!isAllMailboxesAdmin(cfg, parsed.data.user)) return c.json({ error: 'not_admin', detail: 'this mailbox may not enable server-wide access' }, 403);
+    store.setGrantAllMailboxes(g.id, parsed.data.enabled);
+    if (!parsed.data.enabled) await deps.pool?.invalidateVirtual(g.id);
+    log.warn({ grantId: g.id, username: g.username, enabled: parsed.data.enabled, mailboxes: deps.allMailboxes.directory.count }, 'server-wide mailbox access changed');
+    return c.json({ all_mailboxes: parsed.data.enabled, directory_count: deps.allMailboxes.directory.count });
   });
 
   // ---- ADR-002: several mailboxes per grant

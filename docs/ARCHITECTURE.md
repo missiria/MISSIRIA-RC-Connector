@@ -146,6 +146,56 @@ IMAP/SMTP parameters, addressed by a short **alias** (`eksneks`, `yazzicars`).
 | Dovecot master user / admin credential inside the connector | Privileged credential on the MCP host; breaks the "web host and connector hold only what the user consented to" model. |
 | Linking by typing the second mailbox's password on the first mailbox's page | Password crosses a browser form outside Roundcube's login path; link codes keep every password inside its own session. |
 
+## ADR-003 — One connection reaches every mailbox of the server ("all mailboxes" mode)
+
+### Problem
+
+ADR-002 still needs one login and one link code per mailbox. A host with 36
+mailboxes owned by the same person makes that a chore, and the owner's actual
+request is "one connector that reads everything by name, like a project tool
+reads every project".
+
+### Decision
+
+An **admin connection** may be switched to *server-wide reach*. It then opens
+any mailbox of the server with the mail server's **master credential** instead
+of a per-mailbox sealed password.
+
+- Server side (`mcp-server`): `ALL_MAILBOXES_USER` (Dovecot master user),
+  `ALL_MAILBOXES_SECRET_FILE` (secret, read once at boot, root:rcmcp 0640),
+  `ALL_MAILBOXES_ADMINS` (Roundcube logins allowed to enable it) and
+  `MAILBOX_DIRECTORY` (file listing every mailbox login, generated hourly by
+  root from `doveadm user '*'`). All unset = feature absent.
+- Per grant flag `all_mailboxes` (schema v4), switched by the grant owner from
+  Settings → AI Connectors ("All mailboxes (N)" / "Linked mailboxes only") or
+  ticked on the consent screen. The server enforces owner + admin list +
+  configured mode on every switch; non-admins never see the control.
+- Resolution order for `account`: linked accounts (ADR-002) first, then the
+  directory by alias, full address or bare domain. Directory mailboxes are
+  *virtual* accounts (nothing stored): the pool logs in as
+  `<mailbox>*<master user>` with the master secret; SMTP uses the same login,
+  `From` is the real address. Sessions stay keyed per grant + mailbox.
+- Aliases are deterministic: `contact@brand.tld` → `brand`, any other
+  localpart → `brand-localpart`; the directory file can override per line.
+- `list_accounts` marks each entry `source: linked | server`; `search` fans out
+  over every reachable mailbox with bounded concurrency. Audit rows keep
+  `account_user`, so activity on a server mailbox is visible to its owner.
+- Switching off drops every virtual session immediately; `--disable` on the
+  ops script removes the Dovecot master user and the secret.
+
+### Alternatives considered
+
+| Option | Why not |
+|---|---|
+| Keep ADR-002 only (one link code per mailbox) | Correct and least privileged, but 36 logins; rejected by the owner for their own host. |
+| Seal every mailbox password on the server (admin types them once) | Same blast radius as a master credential, plus 36 secrets to rotate when a password changes. |
+| Dovecot `doveadm` HTTP API | Admin API, not IMAP; would mean a second mail client implementation and still a server-wide credential. |
+| Connector runs as `root`/`dovecot` and reads Maildir directly | Bypasses IMAP ACLs, flags, quota and the whole security model. |
+
+Trade-off, stated plainly: with this mode on, a compromise of the connector
+host or of the `rcmcp` process exposes every mailbox of the server. Mitigations
+are in `docs/SECURITY-MODEL.md` (adversary 2b).
+
 ## Alternatives considered (ADR-001)
 
 | Option | Why not |
@@ -173,4 +223,6 @@ IMAP/SMTP parameters, addressed by a short **alias** (`eksneks`, `yazzicars`).
 ## History
 
 - 2026-10-14 — ADR-001 accepted (initial architecture).
+- 2026-10-14 — ADR-002 accepted (several mailboxes per connection).
+- 2026-10-14 — ADR-003 accepted (server-wide reach through a master credential, admin opt-in).
 - 2026-10-14 — ADR-002 accepted (several mailboxes per grant: accounts, aliases, link codes).

@@ -43,3 +43,10 @@
 .rc-connector .rc-connector-join-confirm h4 { margin: 0 0 .5rem; font-size: 1rem; }
 .rc-connector .rc-connector-scopelist { margin: .25rem 0 .75rem 1.25rem; padding: 0; }
 .rc-connector .rc-connector-scopelist .rc-scope-write .rc-scope-name { color: #a33; }
+
+/* ADR-003: server-wide reach */
+.rc-connector .rc-account-all { background: #fff7e6; border: 1px solid #f0c060; }
+.rc-connector tr.rc-grant-all td.rc-accounts { background: #fffbf2; }
+.rc-connector .btn-warning { background: #f0a020; border-color: #f0a020; color: #fff; }
+.rc-connector-allmailboxes { margin-top: 1rem; }
+.rc-connector-allmailboxes .rc-connector-warning { margin-top: .5rem; }

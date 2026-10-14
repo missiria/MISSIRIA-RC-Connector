@@ -34,6 +34,22 @@ The second mailbox's password is sealed from its own Roundcube session, exactly
 like the first one; nothing is typed or copied between mailboxes. Either side
 can **Unlink** later; revoking the connection removes every linked mailbox.
 
+### Every mailbox of the server, no linking (admins)
+
+If you run the server yourself and all mailboxes are yours, your admin can
+enable server-wide reach (docs/INSTALL.md §8b). Then, on your connection row,
+click **All mailboxes (N)** once. From there:
+
+- "list my accounts" → every mailbox of the server with its alias
+  (`yazzicars`, `eksneks-billing`, …).
+- "unread in iptv-premium-europe", "search yazzicars for invoices", "reply from
+  rifcars" → the assistant passes the alias, the address or just the domain.
+- No alias → your main mailbox, as before. "search everywhere" fans out across
+  all of them.
+
+**Linked mailboxes only** switches it off again at any time. The button is
+only shown to the logins your admin listed; everyone else keeps link codes.
+
 ---
 
 ## ChatGPT (Connectors / Apps)

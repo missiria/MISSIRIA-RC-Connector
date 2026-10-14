@@ -5,6 +5,7 @@ import type { Logger } from './log.js';
 import type { KeyPair } from './crypto/seal.js';
 import type { SessionPool } from './mail/pool.js';
 import type { SmtpSender } from './mail/smtp.js';
+import type { MailboxDirectory } from './mail/directory.js';
 
 export interface Deps {
   cfg: Config;
@@ -19,4 +20,6 @@ export interface Deps {
   smtp?: SmtpSender;
   /** fetch used for the Roundcube contacts endpoint (injectable for tests). */
   fetch?: typeof fetch;
+  /** ADR-003: server-wide mode. Both present only when ALL_MAILBOXES_* and MAILBOX_DIRECTORY are configured. */
+  allMailboxes?: { masterSecret: string; directory: MailboxDirectory };
 }

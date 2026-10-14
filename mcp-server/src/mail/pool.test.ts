@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { SessionPool } from './pool.js';
 import { makeDeps, sealedFor } from '../test/harness.js';
 import type { MailClient } from './types.js';
+import { MailboxDirectory } from './directory.js';
 
 function fakeClient(): MailClient & { closed: boolean } {
   const c = { closed: false } as MailClient & { closed: boolean };
@@ -44,6 +45,72 @@ describe('SessionPool', () => {
     await pool.withSecret('g1', 'brand', async (pw, acc) => { expect(pw).toBe('pw-b'); expect(acc.id).toBe(linked.id); });
     await pool.invalidateAccount(linked.id);
     expect(pool.size).toBe(1);
+    await pool.closeAll();
+  });
+});
+
+describe('SessionPool — ADR-003 server-wide reach', () => {
+  async function depsWithDirectory() {
+    const deps = await makeDeps({ ALL_MAILBOXES_USER: 'rccmaster', ALL_MAILBOXES_ADMINS: 'admin@example.test' } as never);
+    deps.allMailboxes = { masterSecret: 'master-pw', directory: MailboxDirectory.fromLines(['contact@eksneks.test', 'contact@yazzicars.test', 'billing@eksneks.test']) };
+    return deps;
+  }
+
+  it('opens directory mailboxes with the master login and never unseals for them', async () => {
+    const deps = await depsWithDirectory();
+    const opened: Array<[string, string]> = [];
+    const pool = new SessionPool(deps, (acc, pass) => { opened.push([acc.username, pass]); return fakeClient(); }, 1000);
+    deps.store.insertGrant({ id: 'g1', kind: 'oauth', username: 'admin@example.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: Buffer.from(await sealedFor(deps, 'pw-admin'), 'base64'), scopes: ['mail:read'], client_id: null, label: null, all_mailboxes: true });
+
+    expect(pool.listReachable('g1').map((a) => a.alias)).toEqual(['example', 'eksneks', 'yazzicars', 'eksneks-billing']);
+    await pool.acquire('g1');
+    await pool.acquire('g1', 'yazzicars');
+    await pool.acquire('g1', 'billing@eksneks.test');
+    await pool.acquire('g1', 'eksneks.test'); // bare domain → contact@
+    expect(opened).toEqual([
+      ['admin@example.test', 'pw-admin'],
+      ['contact@yazzicars.test*rccmaster', 'master-pw'],
+      ['billing@eksneks.test*rccmaster', 'master-pw'],
+      ['contact@eksneks.test*rccmaster', 'master-pw'],
+    ]);
+    expect(pool.size).toBe(4);
+    // same virtual mailbox through a different key reuses the session
+    await pool.acquire('g1', 'contact@eksneks.test');
+    expect(pool.size).toBe(4);
+    await pool.withSecret('g1', 'yazzicars', async (pw, acc) => {
+      expect(pw).toBe('master-pw');
+      expect(acc.username).toBe('contact@yazzicars.test*rccmaster');
+      expect(acc.email).toBe('contact@yazzicars.test');
+      expect(acc.virtual).toBe(true);
+    });
+    await expect(pool.acquire('g1', 'ghost')).rejects.toThrow(/every mailbox of the server/);
+
+    // switching off drops the virtual sessions and the directory lookups
+    deps.store.setGrantAllMailboxes('g1', false);
+    await pool.invalidateVirtual('g1');
+    expect(pool.size).toBe(1);
+    await expect(pool.acquire('g1', 'yazzicars')).rejects.toThrow(/unknown mailbox alias/);
+    await pool.closeAll();
+  });
+
+  it('a linked account wins over the directory entry for the same mailbox', async () => {
+    const deps = await depsWithDirectory();
+    const opened: string[] = [];
+    const pool = new SessionPool(deps, (acc) => { opened.push(acc.username); return fakeClient(); }, 1000);
+    deps.store.insertGrant({ id: 'g1', kind: 'oauth', username: 'admin@example.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: Buffer.from(await sealedFor(deps, 'pw-admin'), 'base64'), scopes: ['mail:read'], client_id: null, label: null, all_mailboxes: true });
+    deps.store.insertAccount({ grant_id: 'g1', alias: 'yz', username: 'contact@yazzicars.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: Buffer.from(await sealedFor(deps, 'pw-yz'), 'base64'), is_primary: false });
+    await pool.acquire('g1', 'yazzicars'); // directory alias → but the mailbox is linked → sealed creds
+    expect(opened).toEqual(['contact@yazzicars.test']);
+    expect(pool.listReachable('g1').filter((a) => a.username === 'contact@yazzicars.test')).toHaveLength(1);
+    await pool.closeAll();
+  });
+
+  it('flag without server configuration keeps ADR-002 behaviour', async () => {
+    const deps = await makeDeps();
+    const pool = new SessionPool(deps, () => fakeClient(), 1000);
+    deps.store.insertGrant({ id: 'g1', kind: 'oauth', username: 'admin@example.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: Buffer.from(await sealedFor(deps, 'pw'), 'base64'), scopes: ['mail:read'], client_id: null, label: null, all_mailboxes: true });
+    expect(pool.listReachable('g1')).toHaveLength(1);
+    await expect(pool.acquire('g1', 'yazzicars')).rejects.toThrow(/linked mailboxes: example/);
     await pool.closeAll();
   });
 });

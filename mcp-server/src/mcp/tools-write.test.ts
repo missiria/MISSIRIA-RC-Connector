@@ -9,6 +9,7 @@ import type { Deps } from '../deps.js';
 import type { MailClient, MessageDetail, Flag } from '../mail/types.js';
 import type { SmtpSender, SmtpCredentials } from '../mail/smtp.js';
 import { parseRaw } from '../mail/parse.js';
+import { MailboxDirectory } from '../mail/directory.js';
 
 class CaptureSmtp implements SmtpSender {
   sent: Array<{ creds: SmtpCredentials; raw: Buffer; envelope: { from: string; to: string[] } }> = [];
@@ -151,5 +152,21 @@ describe('write tools', () => {
 
     const tools = (await client.listTools()).tools.map((t) => t.name);
     expect(tools).toEqual(expect.arrayContaining(['send_message', 'reply_message', 'create_draft', 'move_message', 'set_flags', 'delete_message', 'search_contacts']));
+  });
+
+  it('ADR-003: sending from a server mailbox authenticates with the master login and uses the real address as From', async () => {
+    const { client, smtp, mail, deps, f } = await setup(['mail:read', 'mail:send'], { ALL_MAILBOXES_USER: 'rccmaster', ALL_MAILBOXES_ADMINS: 'alice@example.test' });
+    deps.allMailboxes = { masterSecret: 'master-pw', directory: MailboxDirectory.fromLines(['contact@yazzicars.test']) };
+    deps.store.setGrantAllMailboxes(f.grant.grant_id, true);
+    const r = await client.callTool({ name: 'send_message', arguments: { account: 'yazzicars', to: ['bob@example.test'], subject: 'From yazzicars', text: 'Hi' } });
+    expect(r.isError).toBeFalsy();
+    expect(text(r).recipients).toBe(1);
+    expect(smtp.sent).toHaveLength(1);
+    expect(smtp.sent[0]!.creds).toMatchObject({ user: 'contact@yazzicars.test*rccmaster', pass: 'master-pw' });
+    expect(smtp.sent[0]!.envelope.from).toBe('contact@yazzicars.test');
+    const parsed = await parseRaw(smtp.sent[0]!.raw);
+    expect(parsed.headers.get('from')).toMatchObject({ value: [{ address: 'contact@yazzicars.test' }] });
+    expect(mail.appendedSent).toHaveLength(1);
+    expect(deps.store.listAuditForUser('contact@yazzicars.test').map((a) => a.tool)).toContain('send_message');
   });
 });

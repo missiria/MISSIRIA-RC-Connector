@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { makeApp, internalHeaders, sealedFor, fullFlow } from '../test/harness.js';
+import { makeApp, internalHeaders, sealedFor, fullFlow, registerClient, pkcePair } from '../test/harness.js';
+import { MailboxDirectory } from '../mail/directory.js';
 import { newLinkCode, normalizeLinkCode } from './routes.js';
 
 describe('internal API', () => {
@@ -140,5 +141,63 @@ describe('internal API', () => {
       for (let i = 0; i < 5; i++) await mint();
       expect((await app.request('/internal/link-codes', json(deps, { grant_id: gid, user: 'owner@example.test' }))).status).toBe(429);
     });
+  });
+});
+
+describe('internal API — ADR-003 server-wide reach', () => {
+  const dirDeps = async (admins = 'admin@example.test') => {
+    const { app, deps } = await makeApp({ ALL_MAILBOXES_USER: 'rccmaster', ALL_MAILBOXES_ADMINS: admins } as never);
+    deps.allMailboxes = { masterSecret: 'master-pw', directory: MailboxDirectory.fromLines(['contact@eksneks.test', 'contact@yazzicars.test']) };
+    return { app, deps };
+  };
+
+  it('toggle is owner-only, admin-only and needs the mode configured', async () => {
+    const { app, deps } = await dirDeps();
+    const f = await fullFlow(app, deps, { username: 'admin@example.test' });
+    const other = await fullFlow(app, deps, { username: 'bob@example.test' });
+    const h = internalHeaders(deps);
+    const post = (id: string, user: string, enabled: boolean) => app.request(`/internal/grants/${id}/all-mailboxes`, { method: 'POST', headers: h, body: JSON.stringify({ user, enabled }) });
+
+    expect((await post(f.grant.grant_id, 'bob@example.test', true)).status).toBe(404); // not the owner
+    expect((await post(other.grant.grant_id, 'bob@example.test', true)).status).toBe(403); // owner but not admin
+    const on = await post(f.grant.grant_id, 'admin@example.test', true);
+    expect(on.status).toBe(200);
+    expect(await on.json()).toEqual({ all_mailboxes: true, directory_count: 2 });
+    expect(deps.store.getGrant(f.grant.grant_id)?.all_mailboxes).toBe(true);
+
+    const list = await (await app.request('/internal/grants?user=admin@example.test', { headers: h })).json() as Array<{ all_mailboxes: boolean; all_mailboxes_available: boolean; directory_count: number }>;
+    expect(list[0]).toMatchObject({ all_mailboxes: true, all_mailboxes_available: true, directory_count: 2 });
+    const bobList = await (await app.request('/internal/grants?user=bob@example.test', { headers: h })).json() as Array<{ all_mailboxes: boolean; all_mailboxes_available: boolean }>;
+    expect(bobList[0]).toMatchObject({ all_mailboxes: false, all_mailboxes_available: false });
+
+    expect((await post(f.grant.grant_id, 'admin@example.test', false)).status).toBe(200);
+    expect(deps.store.getGrant(f.grant.grant_id)?.all_mailboxes).toBe(false);
+
+    const health = await (await app.request('/internal/healthz', { headers: h })).json() as { allMailboxes: { configured: boolean; count: number } };
+    expect(health.allMailboxes).toEqual({ configured: true, count: 2, admins: 1 });
+    expect(await (await app.request('/internal/all-mailboxes?user=admin@example.test', { headers: h })).json()).toEqual({ configured: true, available: true, count: 2 });
+    expect(await (await app.request('/internal/all-mailboxes?user=bob@example.test', { headers: h })).json()).toEqual({ configured: true, available: false, count: 2 });
+  });
+
+  it('consent may enable the mode for admins only; unconfigured servers refuse it', async () => {
+    const { app, deps } = await dirDeps();
+    const h = internalHeaders(deps);
+    const client = await registerClient(app);
+    const start = async () => {
+      const authz = await app.request(`/oauth/authorize?response_type=code&client_id=${client.client_id}&redirect_uri=${encodeURIComponent('https://ai.example.test/cb')}&scope=mail:read&code_challenge=${pkcePair().challenge}&code_challenge_method=S256`);
+      return new URL(authz.headers.get('location')!).searchParams.get('req')!;
+    };
+    const denied = await app.request('/internal/grants', { method: 'POST', headers: h, body: JSON.stringify({ request_id: await start(), username: 'bob@example.test', sealed: await sealedFor(deps), scopes: ['mail:read'], all_mailboxes: true }) });
+    expect(denied.status).toBe(403);
+    const ok = await app.request('/internal/grants', { method: 'POST', headers: h, body: JSON.stringify({ request_id: await start(), username: 'admin@example.test', sealed: await sealedFor(deps), scopes: ['mail:read'], all_mailboxes: true }) });
+    expect(ok.status).toBe(201);
+    const { grant_id } = await ok.json() as { grant_id: string };
+    expect(deps.store.getGrant(grant_id)?.all_mailboxes).toBe(true);
+
+    const plain = await makeApp();
+    const f = await fullFlow(plain.app, plain.deps, { username: 'admin@example.test' });
+    const res = await plain.app.request(`/internal/grants/${f.grant.grant_id}/all-mailboxes`, { method: 'POST', headers: internalHeaders(plain.deps), body: JSON.stringify({ user: 'admin@example.test', enabled: true }) });
+    expect(res.status).toBe(409);
+    expect((await (await plain.app.request('/internal/grants?user=admin@example.test', { headers: internalHeaders(plain.deps) })).json() as Array<{ all_mailboxes_available: boolean }>)[0]?.all_mailboxes_available).toBe(false);
   });
 });

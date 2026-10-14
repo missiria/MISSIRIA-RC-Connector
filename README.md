@@ -34,7 +34,7 @@ Gmail and Outlook.
 
 ## Tools
 
-One connection can hold several mailboxes (`list_accounts`, optional `account` alias on every tool, see docs/CONNECT.md).
+One connection can hold several mailboxes (`list_accounts`, optional `account` alias on every tool, see docs/CONNECT.md). Server admins can let one connection reach every mailbox of the host by name (`deploy/enable-all-mailboxes.sh`, ADR-003).
 
 | Read (`mail:read`) | Write (`mail:write`) | Send (`mail:send`) | Contacts |
 |---|---|---|---|

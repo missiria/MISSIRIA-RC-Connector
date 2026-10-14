@@ -57,6 +57,7 @@ class missiria_rc_connector extends rcube_plugin
         $this->register_action('plugin.rc_connector-linkcode', [$this, 'linkcode_action']);
         $this->register_action('plugin.rc_connector-join', [$this, 'join_action']);
         $this->register_action('plugin.rc_connector-unlink', [$this, 'unlink_action']);
+        $this->register_action('plugin.rc_connector-allmailboxes', [$this, 'allmailboxes_action']);
 
         // Own task for the consent screen (dispatched as 'rcconnector.consent'; login enforced by Roundcube)
         $this->register_task('rcconnector');
@@ -154,7 +155,12 @@ class missiria_rc_connector extends rcube_plugin
                 $this->rc->output->show_message($this->gettext('consent_pick_scope'), 'warning');
             } else {
                 try {
-                    $grant = $this->client()->createGrant($this->mailbox_payload() + ['request_id' => $req, 'scopes' => $granted]);
+                    $payload = $this->mailbox_payload() + ['request_id' => $req, 'scopes' => $granted];
+                    // ADR-003: only offered to admins (server decides); the server re-checks and refuses otherwise.
+                    if ($this->in('all_mailboxes', rcube_utils::INPUT_POST) === '1' && !empty($this->all_mailboxes_offer())) {
+                        $payload['all_mailboxes'] = true;
+                    }
+                    $grant = $this->client()->createGrant($payload);
                     $this->rc->output->redirect($public . '/oauth/callback?' . http_build_query(['req' => $req, 'code' => $grant['code']]), 0, true);
                     return;
                 } catch (Throwable $e) {
@@ -194,6 +200,13 @@ class missiria_rc_connector extends rcube_plugin
             $list   .= html::div('form-check rc-scope' . (rc_connector_scopes::isWrite($scope) ? ' rc-scope-write' : ''), $box->show($checked ? $scope : '') . $label);
         }
         $html .= html::div('rc-connector-scopes', html::tag('h4', null, $this->gettext('consent_permissions')) . $list);
+
+        // ADR-003: admins may extend this connection to every mailbox of the server (unchecked by default)
+        if ($offer = $this->all_mailboxes_offer()) {
+            $box   = new html_checkbox(['name' => 'all_mailboxes', 'value' => '1', 'id' => 'rc-all-mailboxes', 'class' => 'form-check-input']);
+            $label = html::label(['for' => 'rc-all-mailboxes', 'class' => 'form-check-label'], html::span('rc-scope-name', $this->gettext(['name' => 'all_mailboxes_consent', 'vars' => ['count' => (int) $offer['count']]])) . ' ' . html::span('rc-scope-desc', $this->gettext('all_mailboxes_consent_desc')));
+            $html .= html::div('rc-connector-scopes rc-connector-allmailboxes', html::div('form-check rc-scope rc-scope-write', $box->show('') . $label) . html::p('rc-connector-warning', $this->gettext('all_mailboxes_warning')));
+        }
 
         $buttons  = html::tag('button', ['type' => 'submit', 'name' => 'decision', 'value' => 'approve', 'class' => 'btn btn-primary'], $this->gettext('approve'));
         $buttons .= ' ' . html::tag('button', ['type' => 'submit', 'name' => 'decision', 'value' => 'deny', 'class' => 'btn btn-secondary'], $this->gettext('deny'));
@@ -257,13 +270,18 @@ class missiria_rc_connector extends rcube_plugin
             $addbox = $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-linkcode']), 'class' => 'inline'],
                 (new html_hiddenfield(['name' => 'id', 'value' => $g['id']]))->show()
                 . html::tag('button', ['type' => 'submit', 'class' => 'btn btn-sm btn-secondary', 'title' => $this->gettext('add_mailbox_title')], $this->gettext('add_mailbox')));
-            $rows .= html::tag('tr', null,
+            $all     = !empty($g['all_mailboxes']);
+            $toggle  = !empty($g['all_mailboxes_available']) ? $this->all_mailboxes_toggle_html($g) : '';
+            $boxes   = $all
+                ? html::span('rc-account rc-account-all', html::tag('code', null, '*')) . ' ' . html::span('hint', $this->gettext(['name' => 'all_mailboxes_on', 'vars' => ['count' => (int) ($g['directory_count'] ?? 0)]])) . ' ' . $this->accounts_html((array) ($g['accounts'] ?? []))
+                : $this->accounts_html((array) ($g['accounts'] ?? []));
+            $rows .= html::tag('tr', $all ? 'rc-grant-all' : null,
                 html::tag('td', null, rcube::Q($g['client_name'] ?: ($g['kind'] === 'pat' ? 'CLI token' : 'OAuth client')))
                 . html::tag('td', null, rcube::Q($g['kind'] === 'pat' ? 'CLI token' : 'OAuth'))
                 . html::tag('td', 'rc-scopes', rcube::Q(implode(' ', $g['scopes'] ?? [])))
-                . html::tag('td', 'rc-accounts', $this->accounts_html((array) ($g['accounts'] ?? [])))
+                . html::tag('td', 'rc-accounts', $boxes)
                 . html::tag('td', null, $this->fmt_date($g['last_used_at'] ?? null))
-                . html::tag('td', 'rc-actions', $addbox . ' ' . $revoke));
+                . html::tag('td', 'rc-actions', $toggle . ($toggle ? ' ' : '') . $addbox . ' ' . $revoke));
         }
         $table = html::tag('table', ['class' => 'table table-sm rc-connector-grants'],
             html::tag('thead', null, html::tag('tr', null,
@@ -346,6 +364,50 @@ class missiria_rc_connector extends rcube_plugin
             $out .= html::span('rc-account', $chip . $unlink);
         }
         return $out ?: html::span('hint', '—');
+    }
+
+    /** ADR-003: the "all mailboxes" switch for one connection (admins only; the server decides who is one). */
+    private function all_mailboxes_toggle_html(array $g): string
+    {
+        $on    = !empty($g['all_mailboxes']);
+        $count = (int) ($g['directory_count'] ?? 0);
+        $btn   = $on
+            ? html::tag('button', ['type' => 'submit', 'class' => 'btn btn-sm btn-secondary', 'title' => $this->gettext('all_mailboxes_disable_title')], $this->gettext('all_mailboxes_disable'))
+            : html::tag('button', ['type' => 'submit', 'class' => 'btn btn-sm btn-warning', 'data-confirm' => $this->gettext(['name' => 'all_mailboxes_confirm', 'vars' => ['count' => $count]]), 'title' => $this->gettext('all_mailboxes_enable_title')], $this->gettext(['name' => 'all_mailboxes_enable', 'vars' => ['count' => $count]]));
+        return $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-allmailboxes']), 'class' => 'inline'],
+            (new html_hiddenfield(['name' => 'id', 'value' => $g['id']]))->show()
+            . (new html_hiddenfield(['name' => 'enabled', 'value' => $on ? '0' : '1']))->show()
+            . $btn);
+    }
+
+    /** ADR-003: server facts for the consent checkbox; empty unless this user may enable server-wide reach. */
+    private function all_mailboxes_offer(): array
+    {
+        try {
+            $info = $this->client()->allMailboxesInfo($this->rc->get_user_name());
+        } catch (Throwable $e) {
+            return [];
+        }
+        return !empty($info['available']) ? ['count' => (int) ($info['count'] ?? 0)] : [];
+    }
+
+    public function allmailboxes_action()
+    {
+        $id      = $this->in('id', rcube_utils::INPUT_POST);
+        $enabled = $this->in('enabled', rcube_utils::INPUT_POST) === '1';
+        if ($id && preg_match('/^[0-9a-f]{32}$/', $id)) {
+            try {
+                $res = $this->client()->setAllMailboxes($id, $this->rc->get_user_name(), $enabled);
+                $this->rc->output->show_message($this->gettext(['name' => $enabled ? 'all_mailboxes_enabled' : 'all_mailboxes_disabled', 'vars' => ['count' => (int) ($res['directory_count'] ?? 0)]]), 'confirmation');
+            } catch (rc_connector_link_exception $e) {
+                $map = ['not_admin' => 'all_mailboxes_not_admin', 'not_configured' => 'all_mailboxes_not_configured'];
+                $this->rc->output->show_message($this->gettext($map[$e->getMessage()] ?? 'all_mailboxes_failed'), 'error');
+            } catch (Throwable $e) {
+                rcube::raise_error(['code' => 500, 'message' => 'rc_connector: ' . $e->getMessage()], true, false);
+                $this->rc->output->show_message($this->gettext('server_unreachable'), 'error');
+            }
+        }
+        $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
     }
 
     /** Step 1 of linking: the grant owner asks for a one-time code to type on the other mailbox. */

@@ -8,6 +8,7 @@ import { SessionPool } from '../mail/pool.js';
 import type { Deps } from '../deps.js';
 import type { MailClient, MessageDetail, MessageSummary } from '../mail/types.js';
 import { MailError } from '../mail/types.js';
+import { MailboxDirectory } from '../mail/directory.js';
 
 const summary = (uid: number, subject: string): MessageSummary => ({
   uid, folder: 'INBOX', date: '2026-10-14T08:00:00.000Z', from: [{ name: 'Ana', address: 'ana@example.test' }], to: [{ name: '', address: 'alice@example.test' }],
@@ -39,8 +40,8 @@ class MockMail implements MailClient {
   async close() { this.closed = true; }
 }
 
-async function setup(scopes: string[] = ['mail:read']) {
-  const deps: Deps = await makeDeps();
+async function setup(scopes: string[] = ['mail:read'], env: Record<string, string> = {}) {
+  const deps: Deps = await makeDeps(env as never);
   deps.pool = new SessionPool(deps, (grant, pass) => new MockMail(grant.username, pass));
   const app = createApp(deps, mcpRoutes);
   const f = await fullFlow(app, deps, { scopes });
@@ -138,7 +139,7 @@ describe('MCP endpoint', () => {
     deps.store.insertAccount({ grant_id: f.grant.grant_id, alias: 'yazzicars', username: 'contact@yazzicars.test', email: 'contact@yazzicars.test', imap_host: 'localhost', imap_port: 143, imap_tls: 'none', smtp_host: 'localhost', smtp_port: 587, smtp_tls: 'none', sealed: Buffer.from(sealed, 'base64'), is_primary: false });
 
     const accounts = JSON.parse((((await client.callTool({ name: 'list_accounts', arguments: {} })).content) as Array<{ text: string }>)[0]!.text).accounts;
-    expect(accounts).toEqual([{ alias: 'example', email: 'alice@example.test', primary: true }, { alias: 'yazzicars', email: 'contact@yazzicars.test', primary: false }]);
+    expect(accounts).toEqual([{ alias: 'example', email: 'alice@example.test', primary: true, source: 'linked' }, { alias: 'yazzicars', email: 'contact@yazzicars.test', primary: false, source: 'linked' }]);
 
     const folders = await client.callTool({ name: 'list_folders', arguments: { account: 'yazzicars' } });
     expect(JSON.parse((folders.content as Array<{ text: string }>)[0]!.text).account).toBe('yazzicars');
@@ -165,5 +166,43 @@ describe('MCP endpoint', () => {
     expect(audit.find((a) => a.tool === 'list_folders' && a.outcome === 'ok')).toMatchObject({ account: 'yazzicars', account_user: 'contact@yazzicars.test' });
     expect(deps.store.listAuditForUser('contact@yazzicars.test').map((a) => a.tool)).toContain('list_folders');
     expect(deps.pool!.size).toBe(2);
+  });
+
+  it('ADR-003: an admin connection with server-wide reach lists, targets and searches every server mailbox', async () => {
+    const { client, deps, f } = await setup(['mail:read'], { ALL_MAILBOXES_USER: 'rccmaster', ALL_MAILBOXES_ADMINS: 'alice@example.test' });
+    deps.allMailboxes = { masterSecret: 'master-pw', directory: MailboxDirectory.fromLines(['alice@example.test', 'contact@yazzicars.test', 'contact@iptv-premium-europe.test', 'billing@yazzicars.test']) };
+    const text = (r: unknown) => JSON.parse((r as { content: Array<{ text: string }> }).content[0]!.text);
+
+    // off: ADR-002 behaviour
+    expect(text(await client.callTool({ name: 'list_accounts', arguments: {} }))).toMatchObject({ all_mailboxes: false, count: 1 });
+    expect(text(await client.callTool({ name: 'list_folders', arguments: { account: 'yazzicars' } }))).toMatchObject({ error: 'unknown_account' });
+
+    deps.store.setGrantAllMailboxes(f.grant.grant_id, true);
+    const list = text(await client.callTool({ name: 'list_accounts', arguments: {} }));
+    expect(list).toMatchObject({ all_mailboxes: true, count: 4 });
+    // the primary mailbox is listed once (linked), the rest come from the server directory
+    expect(list.accounts).toEqual([
+      { alias: 'example', email: 'alice@example.test', primary: true, source: 'linked' },
+      { alias: 'yazzicars', email: 'contact@yazzicars.test', primary: false, source: 'server' },
+      { alias: 'iptv-premium-europe', email: 'contact@iptv-premium-europe.test', primary: false, source: 'server' },
+      { alias: 'yazzicars-billing', email: 'billing@yazzicars.test', primary: false, source: 'server' },
+    ]);
+
+    MockMail.created = [];
+    expect(text(await client.callTool({ name: 'list_folders', arguments: { account: 'iptv-premium-europe.test' } })).account).toBe('iptv-premium-europe');
+    expect(MockMail.created).toEqual([{ user: 'contact@iptv-premium-europe.test*rccmaster', pass: 'master-pw' }]);
+    const audit = deps.store.listAuditForUser('contact@iptv-premium-europe.test');
+    expect(audit[0]).toMatchObject({ tool: 'list_folders', account: 'iptv-premium-europe', account_user: 'contact@iptv-premium-europe.test', username: 'alice@example.test' });
+
+    // search fans out over every reachable mailbox; fetch accepts directory aliases
+    const results = text(await client.callTool({ name: 'search', arguments: { query: 'invoice' } })).results as Array<{ id: string }>;
+    expect(new Set(results.map((r) => r.id.split(':')[0]))).toEqual(new Set(['example', 'yazzicars', 'iptv-premium-europe', 'yazzicars-billing']));
+    expect(text(await client.callTool({ name: 'fetch', arguments: { id: 'yazzicars-billing:INBOX/3' } })).metadata.account).toBe('yazzicars-billing');
+
+    // off again: sessions dropped, aliases unknown
+    deps.store.setGrantAllMailboxes(f.grant.grant_id, false);
+    await deps.pool!.invalidateVirtual(f.grant.grant_id);
+    expect(deps.pool!.size).toBe(1);
+    expect(text(await client.callTool({ name: 'list_folders', arguments: { account: 'yazzicars' } }))).toMatchObject({ error: 'unknown_account' });
   });
 });

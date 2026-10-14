@@ -13,8 +13,8 @@ function grantFixture(id: string, username = 'alice@example.test') {
 describe('Store', () => {
   it('migrates idempotently', () => {
     const s = openStore(':memory:');
-    expect(s.migrate()).toBe(3);
-    expect(s.migrate()).toBe(3);
+    expect(s.migrate()).toBe(4);
+    expect(s.migrate()).toBe(4);
     s.close();
   });
 
@@ -126,9 +126,9 @@ describe('Store', () => {
     s.db.prepare('INSERT INTO schema_version(version) VALUES (1)').run();
     s.db.prepare(`INSERT INTO grants(id, kind, username, email, imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls, sealed, scopes, client_id, label, created_at)
                   VALUES ('g1','oauth','contact@eksneks.com','contact@eksneks.com','127.0.0.1',143,'none','mail.eksneks.com',587,'starttls',x'00','mail:read',NULL,NULL,1)`).run();
-    expect(s.migrate()).toBe(3);
+    expect(s.migrate()).toBe(4);
     expect(s.getPrimaryAccount('g1')).toMatchObject({ alias: 'eksneks', username: 'contact@eksneks.com', imap_tls: 'none', is_primary: true });
-    expect(s.migrate()).toBe(3);
+    expect(s.migrate()).toBe(4);
     expect(s.listAccounts('g1')).toHaveLength(1);
   });
 
@@ -154,5 +154,19 @@ describe('Store', () => {
     expect(linked).toHaveLength(1);
     expect(linked[0]).toMatchObject({ tool: 'list_folders', account: 'yazzicars' });
     expect(s.listAuditForUser('stranger@example.test')).toHaveLength(0);
+  });
+});
+
+describe('Store — ADR-003', () => {
+  it('grants carry the all_mailboxes flag; it can be switched and is off by default', () => {
+    const s = openStore(':memory:');
+    s.insertGrant({ id: 'g1', kind: 'oauth', username: 'admin@example.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: new Uint8Array(48), scopes: ['mail:read'], client_id: null, label: null });
+    expect(s.getGrant('g1')?.all_mailboxes).toBe(false);
+    expect(s.setGrantAllMailboxes('g1', true)).toBe(true);
+    expect(s.getGrant('g1')?.all_mailboxes).toBe(true);
+    expect(s.listGrantsForUser('admin@example.test')[0]?.all_mailboxes).toBe(true);
+    s.revokeGrant('g1');
+    expect(s.setGrantAllMailboxes('g1', false)).toBe(false);
+    expect(s.setGrantAllMailboxes('nope', true)).toBe(false);
   });
 });

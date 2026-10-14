@@ -30,9 +30,31 @@ const schema = z.object({
   CODE_TTL_SECONDS: z.coerce.number().int().default(120),
   LOG_LEVEL: z.string().default('info'),
   LOG_FILE: z.string().optional(),
+  // ADR-003: "all mailboxes" mode. All unset = feature off.
+  /** Roundcube logins allowed to switch a connection to server-wide reach (comma separated). */
+  ALL_MAILBOXES_ADMINS: z
+    .string()
+    .default('')
+    .transform((s) => s.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)),
+  /** Mail-server master login (Dovecot master user); the connector logs in as `<mailbox><sep><user>`. */
+  ALL_MAILBOXES_USER: z.string().trim().min(1).optional(),
+  /** File holding the master secret (one line). Read once at boot. */
+  ALL_MAILBOXES_SECRET_FILE: z.string().trim().min(1).optional(),
+  ALL_MAILBOXES_SEPARATOR: z.string().min(1).max(4).default('*'),
+  /** File listing every mailbox login on the server (one per line, optional alias column). */
+  MAILBOX_DIRECTORY: z.string().trim().min(1).optional(),
 });
 
 export type Config = z.infer<typeof schema>;
+
+/** True when every setting of the "all mailboxes" mode is present (the secret itself is checked at boot). */
+export function allMailboxesConfigured(cfg: Config): boolean {
+  return Boolean(cfg.ALL_MAILBOXES_USER && cfg.ALL_MAILBOXES_SECRET_FILE && cfg.MAILBOX_DIRECTORY);
+}
+
+export function isAllMailboxesAdmin(cfg: Config, username: string): boolean {
+  return cfg.ALL_MAILBOXES_ADMINS.includes(username.trim().toLowerCase());
+}
 
 export const SCOPES = ['mail:read', 'mail:write', 'mail:send', 'contacts:read'] as const;
 export type Scope = (typeof SCOPES)[number];

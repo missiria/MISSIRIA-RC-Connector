@@ -91,4 +91,26 @@ final class InternalClientTest extends TestCase
         $this->assertSame('http://127.0.0.1:8787/internal/link-codes/LINK-AAAA-BBBB', $this->calls[0]['url']);
         $this->assertNull($c->previewLinkCode('LINK-AAAA-BBBB'));
     }
+
+    public function testAllMailboxesInfoAndSwitch(): void
+    {
+        $c = $this->client([
+            ['status' => 200, 'body' => json_encode(['configured' => true, 'available' => true, 'count' => 36])],
+            ['status' => 200, 'body' => json_encode(['all_mailboxes' => true, 'directory_count' => 36])],
+            ['status' => 403, 'body' => json_encode(['error' => 'not_admin'])],
+            ['status' => 500, 'body' => ''],
+        ]);
+        $this->assertSame(['available' => true, 'configured' => true, 'count' => 36], $c->allMailboxesInfo('admin@example.test'));
+        $this->assertSame('http://127.0.0.1:8787/internal/all-mailboxes?user=admin%40example.test', $this->calls[0]['url']);
+        $this->assertSame(36, $c->setAllMailboxes('g1', 'admin@example.test', true)['directory_count']);
+        $this->assertSame('http://127.0.0.1:8787/internal/grants/g1/all-mailboxes', $this->calls[1]['url']);
+        $this->assertSame(['user' => 'admin@example.test', 'enabled' => true], json_decode($this->calls[1]['body'], true));
+        try {
+            $c->setAllMailboxes('g1', 'bob@example.test', true);
+            $this->fail('expected link exception');
+        } catch (rc_connector_link_exception $e) {
+            $this->assertSame('not_admin', $e->getMessage());
+        }
+        $this->assertSame(['available' => false, 'configured' => false, 'count' => 0], $c->allMailboxesInfo('x'));
+    }
 }

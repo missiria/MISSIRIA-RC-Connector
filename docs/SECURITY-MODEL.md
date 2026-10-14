@@ -35,6 +35,23 @@ each case. Companion to `SECURITY.md` (reporting) and `docs/ARCHITECTURE.md`.
 - Mitigation for admins: back up `server.sk` offline; rotate by `keygen --force` + ask users to
   reconnect (all grants become unreadable, which is the intended outcome).
 
+### 2b. Compromised MCP server process with "all mailboxes" mode on (ADR-003)
+
+- Optional, off by default. When enabled, the process holds one mail-server master secret
+  (`ALL_MAILBOXES_SECRET_FILE`, root:rcmcp 0640) that opens **every** mailbox of the host, not
+  only those with live grants. This is the largest blast radius in the design and is chosen
+  knowingly by the host administrator for their own mailboxes.
+- Controls: the mode needs four settings to be present; only logins in `ALL_MAILBOXES_ADMINS`
+  can switch a connection to it, only for connections they own, and the switch is explicit in
+  the UI with a warning. Scopes still apply (a read-only connection stays read-only across all
+  mailboxes). Every call records the targeted mailbox (`account_user`) in the audit log, which
+  that mailbox's owner can see.
+- Rotation: `deploy/enable-all-mailboxes.sh --rotate` (new secret, Dovecot reload, connector
+  restart); `--disable` removes the master user, the secret and the directory. Switching a
+  connection off drops its server sessions immediately.
+- Not a mitigation: sealing the master secret with the server key pair. The process already
+  holds the private key, so sealing adds nothing against this adversary.
+
 ### 3. Stolen bearer token
 
 - Access tokens expire after 1 h; refresh tokens rotate on every use and a replayed refresh
@@ -87,6 +104,8 @@ each case. Companion to `SECURITY.md` (reporting) and `docs/ARCHITECTURE.md`.
 ## Known limitations
 
 - The MCP server is the trust root; there is no HSM/KMS integration.
+- With ADR-003 enabled, the trust root also holds a server-wide mail credential (see 2b). Hosts
+  with several independent users should keep the mode off and use link codes (ADR-002).
 - A Roundcube admin with filesystem access can read `config.inc.php` (`INTERNAL_KEY`) and the
   session store. This is no worse than their existing access to live sessions.
 - Transport security between the MCP server and the mail server follows what Roundcube itself
