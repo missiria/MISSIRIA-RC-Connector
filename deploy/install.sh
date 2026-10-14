@@ -71,6 +71,12 @@ for bin in git curl rsync xz; do
   command -v "$bin" >/dev/null || run apt-get install -y "$bin" xz-utils
 done
 
+# --- 0. System user (needed before anything is created with group rcmcp) ------
+if ! id -u "$APP_USER" >/dev/null 2>&1; then
+  log "Creating system user $APP_USER"
+  run useradd --system --home "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER"
+fi
+
 # --- 1. Node.js >= 22.13 (never replaces the system node) --------------------
 node_version_ok() {
   local v; v="$("$1" -v 2>/dev/null | sed 's/^v//')" || return 1
@@ -98,11 +104,7 @@ NODE_PATH_PREFIX="$(dirname "$NODE_BIN")"
 # npm must come from the same runtime as node
 as_app_node() { run sudo -u "$APP_USER" env "PATH=$NODE_PATH_PREFIX:/usr/bin:/bin" bash -c "$1"; }
 
-# --- 2. User and directories ------------------------------------------------
-if ! id -u "$APP_USER" >/dev/null 2>&1; then
-  log "Creating system user $APP_USER"
-  run useradd --system --home "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER"
-fi
+# --- 2. Directories ---------------------------------------------------------
 run install -d -o root -g "$APP_USER" -m 750 "$APP_HOME"
 [[ -d "$NODE_DIR" ]] && run chmod 755 "$NODE_DIR"
 run install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$DATA_DIR" "$LOG_DIR" "$APP_DIR"
