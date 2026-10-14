@@ -7,7 +7,7 @@ import { addressList, htmlToText, parseRaw, referencesOf, sanitizeMailHtml, snip
 export interface ImapCredentials {
   host: string;
   port: number;
-  /** implicit (TLS on connect), starttls (upgrade, required) or none (loopback only; STARTTLS still used opportunistically) */
+  /** implicit (TLS on connect), starttls (upgrade, required) or none (plaintext; loopback only, STARTTLS disabled) */
   tls: 'implicit' | 'starttls' | 'none';
   rejectUnauthorized: boolean;
   user: string;
@@ -46,6 +46,26 @@ function hasAttachments(node: MessageStructureObject | undefined): boolean {
   return list.some((a) => !a.inline || !a.mime.startsWith('image/'));
 }
 
+/** Connection options for one TLS mode. Exported so the mode → socket policy is unit-testable. */
+export function imapFlowOptions(creds: ImapCredentials): ConstructorParameters<typeof ImapFlow>[0] {
+  return {
+    host: creds.host,
+    port: creds.port,
+    secure: creds.tls === 'implicit',
+    // 'starttls' = upgrade is mandatory. 'none' (loopback only) disables imapflow's opportunistic
+    // STARTTLS: the server certificate names the public mail host, never 127.0.0.1, so an
+    // opportunistic upgrade would fail certificate validation and break every call.
+    ...(creds.tls === 'starttls' ? { doSTARTTLS: true } : creds.tls === 'none' ? { doSTARTTLS: false } : {}),
+    tls: { rejectUnauthorized: creds.rejectUnauthorized },
+    auth: { user: creds.user, pass: creds.pass },
+    logger: false,
+    emitLogs: false,
+    connectionTimeout: 15000,
+    greetingTimeout: 10000,
+    socketTimeout: 5 * 60 * 1000,
+  };
+}
+
 /** imapflow-backed MailClient. One instance = one authenticated IMAP connection. */
 export class ImapMailbox implements MailClient {
   private client: ImapFlow;
@@ -53,20 +73,7 @@ export class ImapMailbox implements MailClient {
   private folderCache: FolderInfo[] | null = null;
 
   constructor(private readonly creds: ImapCredentials) {
-    this.client = new ImapFlow({
-      host: creds.host,
-      port: creds.port,
-      secure: creds.tls === 'implicit',
-      // 'starttls' = upgrade is mandatory; 'none' leaves imapflow's opportunistic STARTTLS in place
-      ...(creds.tls === 'starttls' ? { doSTARTTLS: true } : {}),
-      tls: { rejectUnauthorized: creds.rejectUnauthorized },
-      auth: { user: creds.user, pass: creds.pass },
-      logger: false,
-      emitLogs: false,
-      connectionTimeout: 15000,
-      greetingTimeout: 10000,
-      socketTimeout: 5 * 60 * 1000,
-    });
+    this.client = new ImapFlow(imapFlowOptions(creds));
     this.client.on('close', () => { this.connected = false; });
     this.client.on('error', () => { this.connected = false; });
   }

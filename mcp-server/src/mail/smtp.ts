@@ -39,18 +39,25 @@ export async function buildRaw(msg: OutgoingMessage): Promise<{ raw: Buffer; mes
   return { raw, messageId };
 }
 
+/** Transport options for one TLS mode. Exported so the mode → socket policy is unit-testable. */
+export function smtpTransportOptions(creds: SmtpCredentials) {
+  return {
+    host: creds.host,
+    port: creds.port,
+    secure: creds.tls === 'implicit',
+    // 'starttls' = STARTTLS required; 'none' (loopback only) = plaintext, no opportunistic STARTTLS
+    // (the server certificate would not match 127.0.0.1 anyway).
+    requireTLS: creds.tls === 'starttls',
+    ignoreTLS: creds.tls === 'none',
+    auth: { user: creds.user, pass: creds.pass },
+    connectionTimeout: 15000,
+    socketTimeout: 60000,
+  };
+}
+
 export class NodemailerSender implements SmtpSender {
   async send(creds: SmtpCredentials, raw: Buffer, envelope: { from: string; to: string[] }) {
-    const transport = nodemailer.createTransport({
-      host: creds.host,
-      port: creds.port,
-      secure: creds.tls === 'implicit',
-      // 'starttls' = STARTTLS required; 'none' (loopback only) keeps nodemailer's opportunistic STARTTLS
-      requireTLS: creds.tls === 'starttls',
-      auth: { user: creds.user, pass: creds.pass },
-      connectionTimeout: 15000,
-      socketTimeout: 60000,
-    });
+    const transport = nodemailer.createTransport(smtpTransportOptions(creds));
     try {
       const info = await transport.sendMail({ envelope, raw });
       return { messageId: info.messageId ?? null, response: info.response };
