@@ -8,8 +8,10 @@ import { redirectHost } from '../oauth/routes.js';
 
 const mailboxSchema = z.object({
   username: z.string().min(1).max(320),
+  email: z.string().email().max(320).optional(),
   imap_host: z.string().min(1).optional(),
   imap_port: z.coerce.number().int().min(1).max(65535).optional(),
+  imap_secure: z.boolean().optional(),
   smtp_host: z.string().min(1).optional(),
   smtp_port: z.coerce.number().int().min(1).max(65535).optional(),
   sealed: z.string().min(64), // base64 of ≥ 48 bytes
@@ -71,8 +73,10 @@ export function internalRoutes(deps: Deps): Hono {
       id: randomId(),
       kind: 'oauth',
       username: b.username,
+      email: b.email ?? null,
       imap_host: b.imap_host ?? cfg.IMAP_HOST,
       imap_port: b.imap_port ?? cfg.IMAP_PORT,
+      imap_secure: b.imap_secure ?? cfg.IMAP_TLS,
       smtp_host: b.smtp_host ?? cfg.SMTP_HOST,
       smtp_port: b.smtp_port ?? cfg.SMTP_PORT,
       sealed,
@@ -99,8 +103,10 @@ export function internalRoutes(deps: Deps): Hono {
       id: randomId(),
       kind: 'pat',
       username: b.username,
+      email: b.email ?? null,
       imap_host: b.imap_host ?? cfg.IMAP_HOST,
       imap_port: b.imap_port ?? cfg.IMAP_PORT,
+      imap_secure: b.imap_secure ?? cfg.IMAP_TLS,
       smtp_host: b.smtp_host ?? cfg.SMTP_HOST,
       smtp_port: b.smtp_port ?? cfg.SMTP_PORT,
       sealed,

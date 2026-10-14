@@ -16,7 +16,9 @@ export function mcpRoutes(deps: Deps): Hono<AuthEnv> {
     const principal = c.get('principal');
     const ip = c.req.header('x-real-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
     const server = createMcpServer(deps, principal, ip);
-    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    // Body bound: attachments (base64 ≈ 4/3) plus headroom for text/html bodies and JSON framing.
+    const maxRequestBodySize = Math.ceil(deps.cfg.ATTACHMENT_MAX_BYTES * 1.4) + 2 * 1024 * 1024;
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true, maxRequestBodySize });
     try {
       await server.connect(transport);
       return await transport.handleRequest(c.req.raw, {

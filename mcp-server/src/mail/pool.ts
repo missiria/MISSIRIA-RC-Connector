@@ -107,7 +107,7 @@ function defaultFactory(deps: Deps): MailClientFactory {
     new ImapMailbox({
       host: grant.imap_host,
       port: grant.imap_port,
-      secure: deps.cfg.IMAP_TLS,
+      secure: grant.imap_secure,
       rejectUnauthorized: !deps.cfg.IMAP_TLS_INSECURE,
       user: grant.username,
       pass: password,

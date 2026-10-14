@@ -3,7 +3,7 @@ import { openStore, now } from './db.js';
 
 function grantFixture(id: string, username = 'alice@example.test') {
   return {
-    id, kind: 'oauth' as const, username, imap_host: 'imap.example.test', imap_port: 993,
+    id, kind: 'oauth' as const, username, imap_host: 'imap.example.test', imap_port: 993, imap_secure: true, email: null,
     smtp_host: 'smtp.example.test', smtp_port: 587, sealed: Buffer.from('sealed'), scopes: ['mail:read' as const],
     client_id: null, label: null,
   };
@@ -67,6 +67,17 @@ describe('Store', () => {
     const rows = s.listAuditForUser('alice@example.test', 3);
     expect(rows).toHaveLength(3);
     expect(rows[0]?.tool).toBe('t4');
+  });
+
+  it('reserveSend is atomic and releasable', () => {
+    const s = openStore(':memory:');
+    s.insertGrant(grantFixture('g1'));
+    expect(s.reserveSend('g1', 2)).toBe(true);
+    expect(s.reserveSend('g1', 2)).toBe(true);
+    expect(s.reserveSend('g1', 2)).toBe(false);
+    s.releaseSend('g1');
+    expect(s.reserveSend('g1', 2)).toBe(true);
+    expect(s.countSendsSince('g1', 0)).toBe(2);
   });
 
   it('send rate counter', () => {

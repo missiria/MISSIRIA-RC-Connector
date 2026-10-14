@@ -9,6 +9,8 @@ export const PAT_PREFIX = 'rcc_';
 export interface Principal {
   grantId: string;
   username: string;
+  /** Sender address: Roundcube identity when known, else username. */
+  email: string | null;
   scopes: Scope[];
   kind: 'oauth' | 'pat';
 }
@@ -73,7 +75,7 @@ export class TokenService {
       if (!row || row.kind !== 'pat' || row.revoked_at) return undefined;
       const grant = this.store.getGrant(row.grant_id);
       if (!grant || grant.revoked_at) return undefined;
-      return { grantId: grant.id, username: grant.username, scopes: grant.scopes, kind: 'pat' };
+      return { grantId: grant.id, username: grant.username, email: grant.email, scopes: grant.scopes, kind: 'pat' };
     }
     try {
       const { payload } = await jwtVerify(bearer, this.secret, {
@@ -85,7 +87,7 @@ export class TokenService {
       const grant = this.store.getGrant(payload.sub);
       if (!grant || grant.revoked_at) return undefined;
       const scopes = String(payload['scope'] ?? '').split(' ').filter(isScope);
-      return { grantId: grant.id, username: grant.username, scopes, kind: 'oauth' };
+      return { grantId: grant.id, username: grant.username, email: grant.email, scopes, kind: 'oauth' };
     } catch {
       return undefined;
     }

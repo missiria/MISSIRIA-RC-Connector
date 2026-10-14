@@ -5,32 +5,38 @@ import { ToolError, toolError } from './server.js';
 import type { Address, OutgoingMessage } from '../mail/types.js';
 import { buildRaw } from '../mail/smtp.js';
 import { searchContacts } from '../mail/contacts.js';
-import { now } from '../store/db.js';
 
 const folderArg = z.string().min(1).max(500).default('INBOX').describe('IMAP folder path');
 const uidArg = z.number().int().positive().describe('Message UID within the folder');
 const addressArg = z.string().email().max(320);
-const attachmentArg = z.object({
-  filename: z.string().min(1).max(255),
-  mime: z.string().min(3).max(120).default('application/octet-stream'),
-  base64: z.string().min(1),
-});
-const bodyShape = {
+/** base64 expands 3 bytes to 4 chars (+ padding); cap the string before any decoding happens. */
+const base64MaxChars = (maxBytes: number) => Math.ceil(maxBytes / 3) * 4 + 4;
+const attachmentArg = (maxBytes: number) =>
+  z.object({
+    filename: z.string().min(1).max(255),
+    mime: z.string().min(3).max(120).default('application/octet-stream'),
+    base64: z.string().min(1).max(base64MaxChars(maxBytes)),
+  });
+const bodyShape = (maxBytes: number) => ({
   subject: z.string().max(998),
   text: z.string().max(500_000).describe('Plain-text body (always required; used as the fallback part)'),
   html: z.string().max(1_000_000).optional().describe('Optional HTML body'),
-  attachments: z.array(attachmentArg).max(10).optional(),
-};
+  attachments: z.array(attachmentArg(maxBytes)).max(10).optional(),
+});
 
 const MAX_RECIPIENTS = 25;
 
 function senderFor(ctx: ToolContext): Address {
+  if (ctx.principal.email) return { name: '', address: ctx.principal.email };
   const u = ctx.principal.username;
   const address = u.includes('@') ? u : `${u}@${new URL(ctx.deps.cfg.WEBMAIL_URL).hostname.replace(/^(webmail|mail|imap)\./, '')}`;
   return { name: '', address };
 }
 
 function decodeAttachments(list: Array<{ filename: string; mime: string; base64: string }> | undefined, maxBytes: number) {
+  // Estimate from string length first so oversized payloads are rejected before Buffer.from allocates.
+  const estimated = (list ?? []).reduce((n, a) => n + Math.floor((a.base64.length * 3) / 4), 0);
+  if (estimated > maxBytes) throw new ToolError('too_large', `attachments total about ${estimated} bytes exceed the limit of ${maxBytes}`);
   let total = 0;
   const out = (list ?? []).map((a) => {
     const content = Buffer.from(a.base64, 'base64');
@@ -48,18 +54,22 @@ async function submit(ctx: ToolContext, tool: string, msg: OutgoingMessage): Pro
   const recipients = [...msg.to, ...msg.cc, ...msg.bcc];
   if (recipients.length === 0) throw new ToolError('invalid_argument', 'at least one recipient is required');
   if (recipients.length > MAX_RECIPIENTS) throw new ToolError('invalid_argument', `at most ${MAX_RECIPIENTS} recipients per message`);
-  const sentLastHour = deps.store.countSendsSince(principal.grantId, now() - 3600);
-  if (sentLastHour >= deps.cfg.SEND_RATE_PER_HOUR) {
+  const grant = deps.store.getGrant(principal.grantId);
+  if (!grant) throw new ToolError('mail_unavailable', 'grant not found');
+  const { raw, messageId } = await buildRaw(msg);
+  // Reserve the slot atomically (count + insert in one transaction) so parallel calls cannot exceed the limit.
+  if (!deps.store.reserveSend(principal.grantId, deps.cfg.SEND_RATE_PER_HOUR)) {
     deps.store.insertAudit({ grant_id: principal.grantId, username: principal.username, tool, folder: null, outcome: 'rate_limited', ms: 0, ip: ctx.ip });
     throw new ToolError('rate_limited', `send limit of ${deps.cfg.SEND_RATE_PER_HOUR} messages per hour reached for this connection`);
   }
-  const { raw, messageId } = await buildRaw(msg);
-  const grant = deps.store.getGrant(principal.grantId);
-  if (!grant) throw new ToolError('mail_unavailable', 'grant not found');
-  await deps.pool!.withSecret(principal.grantId, (pass) =>
-    deps.smtp!.send({ host: grant.smtp_host, port: grant.smtp_port, startTls: deps.cfg.SMTP_STARTTLS, user: grant.username, pass }, raw, { from: msg.from.address, to: recipients.map((r) => r.address) }),
-  );
-  deps.store.recordSend(principal.grantId);
+  try {
+    await deps.pool!.withSecret(principal.grantId, (pass) =>
+      deps.smtp!.send({ host: grant.smtp_host, port: grant.smtp_port, startTls: deps.cfg.SMTP_STARTTLS, user: grant.username, pass }, raw, { from: msg.from.address, to: recipients.map((r) => r.address) }),
+    );
+  } catch (e) {
+    deps.store.releaseSend(principal.grantId);
+    throw e;
+  }
   // Copy to Sent; failure here must not be reported as a failed send.
   await ctx.withMail(`${tool}:sent_copy`, null, (m) => m.appendSent(raw)).catch(() => undefined);
   return { messageId, recipients: recipients.length };
@@ -69,13 +79,14 @@ const toAddr = (list: string[] | undefined): Address[] => (list ?? []).map((a) =
 
 export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
   const max = ctx.deps.cfg.ATTACHMENT_MAX_BYTES;
+  const body = bodyShape(max);
 
   server.registerTool(
     'send_message',
     {
       title: 'Send an email',
       description: 'Send a new email from the connected mailbox (scope mail:send). Confirm recipients and content with the user before calling. A copy is stored in Sent.',
-      inputSchema: { to: z.array(addressArg).min(1).max(MAX_RECIPIENTS), cc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), bcc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), ...bodyShape },
+      inputSchema: { to: z.array(addressArg).min(1).max(MAX_RECIPIENTS), cc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), bcc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), ...body },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (a) => {
@@ -92,13 +103,14 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     'reply_message',
     {
       title: 'Reply to an email',
-      description: 'Reply to a message (scope mail:send). Sets In-Reply-To/References, quotes the original, marks it answered. reply_all includes the original Cc.',
-      inputSchema: { folder: folderArg, uid: uidArg, text: bodyShape.text, html: bodyShape.html, reply_all: z.boolean().default(false), attachments: bodyShape.attachments },
+      description: 'Reply to a message (scopes mail:send + mail:read). Sets In-Reply-To/References, quotes the original and marks it answered (the answered flag is part of replying, no mail:write needed). reply_all includes the original Cc.',
+      inputSchema: { folder: folderArg, uid: uidArg, text: body.text, html: body.html, reply_all: z.boolean().default(false), attachments: body.attachments },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (a) => {
       try {
         ctx.requireScope('mail:send', 'reply_message');
+        ctx.requireScope('mail:read', 'reply_message'); // the original is read and partially echoed back
         const original = await ctx.withMail('reply_message:read', a.folder, (m) => m.getMessage(a.folder, a.uid, { format: 'text', maxChars: 20_000 }));
         if (!original) return toolError(new ToolError('not_found', `message ${a.uid} not found in ${a.folder}`));
         const me = senderFor(ctx).address.toLowerCase();
@@ -119,7 +131,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Save a draft',
       description: 'Save a message in the Drafts folder without sending it (scope mail:write). The user can finish it in Roundcube.',
-      inputSchema: { to: z.array(addressArg).max(MAX_RECIPIENTS).optional(), cc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), ...bodyShape },
+      inputSchema: { to: z.array(addressArg).max(MAX_RECIPIENTS).optional(), cc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), ...body },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a) => {

@@ -115,6 +115,23 @@ describe('write tools', () => {
     expect(text(off).error).toBe('send_disabled');
   });
 
+  it('oversized base64 attachments are rejected by schema before decoding; failed SMTP releases the slot', async () => {
+    const { client, smtp, deps, f } = await setup(['mail:read', 'mail:send'], { ATTACHMENT_MAX_BYTES: '30', SEND_RATE_PER_HOUR: '1' });
+    const big = await client.callTool({ name: 'send_message', arguments: { to: ['b@example.test'], subject: 's', text: 't', attachments: [{ filename: 'x.bin', base64: 'A'.repeat(200) }] } });
+    expect(big.isError).toBe(true);
+    expect(smtp.sent).toHaveLength(0);
+    smtp.send = async () => { throw new Error('connect ECONNREFUSED'); };
+    const failed = await client.callTool({ name: 'send_message', arguments: { to: ['b@example.test'], subject: 's', text: 't' } });
+    expect(text(failed).error).toBe('internal_error');
+    expect(deps.store.countSendsSince(f.grant.grant_id, 0)).toBe(0); // reservation released
+  });
+
+  it('reply_message needs mail:read too', async () => {
+    const { client } = await setup(['mail:send']);
+    const r = await client.callTool({ name: 'reply_message', arguments: { uid: 7, text: 'x' } });
+    expect(text(r).error).toBe('insufficient_scope');
+  });
+
   it('draft, move, flags, trash and contacts', async () => {
     const { client, mail } = await setup(['mail:read', 'mail:write', 'contacts:read']);
     const d = await client.callTool({ name: 'create_draft', arguments: { to: ['b@example.test'], subject: 'Draft', text: 'wip' } });

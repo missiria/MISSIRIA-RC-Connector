@@ -33,8 +33,10 @@ export const MIGRATIONS: string[] = [
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
     username TEXT NOT NULL,
+    email TEXT,
     imap_host TEXT NOT NULL,
     imap_port INTEGER NOT NULL,
+    imap_secure INTEGER NOT NULL DEFAULT 1,
     smtp_host TEXT NOT NULL,
     smtp_port INTEGER NOT NULL,
     sealed BLOB NOT NULL,
@@ -109,8 +111,11 @@ export interface GrantRow {
   id: string;
   kind: GrantKind;
   username: string;
+  /** Primary identity address from Roundcube; falls back to username when null. */
+  email: string | null;
   imap_host: string;
   imap_port: number;
+  imap_secure: boolean;
   smtp_host: string;
   smtp_port: number;
   sealed: Uint8Array;
@@ -253,20 +258,20 @@ export class Store {
     const row: GrantRow = { ...g, created_at: now(), last_used_at: null, revoked_at: null };
     this.db
       .prepare(
-        `INSERT INTO grants(id, kind, username, imap_host, imap_port, smtp_host, smtp_port, sealed, scopes, client_id, label, created_at)
-         VALUES (@id, @kind, @username, @imap_host, @imap_port, @smtp_host, @smtp_port, @sealed, @scopes, @client_id, @label, @created_at)`,
+        `INSERT INTO grants(id, kind, username, email, imap_host, imap_port, imap_secure, smtp_host, smtp_port, sealed, scopes, client_id, label, created_at)
+         VALUES (@id, @kind, @username, @email, @imap_host, @imap_port, @imap_secure, @smtp_host, @smtp_port, @sealed, @scopes, @client_id, @label, @created_at)`,
       )
       .run({
-        id: row.id, kind: row.kind, username: row.username, imap_host: row.imap_host, imap_port: row.imap_port,
-        smtp_host: row.smtp_host, smtp_port: row.smtp_port, sealed: row.sealed, scopes: row.scopes.join(' '),
+        id: row.id, kind: row.kind, username: row.username, email: row.email, imap_host: row.imap_host, imap_port: row.imap_port,
+        imap_secure: row.imap_secure ? 1 : 0, smtp_host: row.smtp_host, smtp_port: row.smtp_port, sealed: row.sealed, scopes: row.scopes.join(' '),
         client_id: row.client_id, label: row.label, created_at: row.created_at,
       });
     return row;
   }
 
   getGrant(id: string): GrantRow | undefined {
-    const r = this.db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as (Omit<GrantRow, 'scopes'> & { scopes: string }) | undefined;
-    return r ? { ...r, scopes: r.scopes.split(' ').filter(Boolean) as Scope[] } : undefined;
+    const r = this.db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as (Omit<GrantRow, 'scopes' | 'imap_secure'> & { scopes: string; imap_secure: number }) | undefined;
+    return r ? { ...r, imap_secure: Boolean(r.imap_secure), scopes: r.scopes.split(' ').filter(Boolean) as Scope[] } : undefined;
   }
 
   listGrantsForUser(username: string): Array<GrantRow & { client_name: string | null }> {
@@ -275,8 +280,8 @@ export class Store {
         `SELECT g.*, c.client_name FROM grants g LEFT JOIN clients c ON c.client_id = g.client_id
          WHERE g.username = ? AND g.revoked_at IS NULL ORDER BY g.created_at DESC`,
       )
-      .all(username) as Array<Omit<GrantRow, 'scopes'> & { scopes: string; client_name: string | null }>;
-    return rows.map((r) => ({ ...r, scopes: r.scopes.split(' ').filter(Boolean) as Scope[] }));
+      .all(username) as unknown as Array<Omit<GrantRow, 'scopes' | 'imap_secure'> & { scopes: string; imap_secure: number; client_name: string | null }>;
+    return rows.map((r) => ({ ...r, imap_secure: Boolean(r.imap_secure), scopes: r.scopes.split(' ').filter(Boolean) as Scope[] }));
   }
 
   touchGrant(id: string): void {
@@ -335,6 +340,32 @@ export class Store {
 
   recordSend(grantId: string): void {
     this.db.prepare('INSERT INTO send_log(grant_id, created_at) VALUES (?, ?)').run(grantId, now());
+  }
+
+  /**
+   * Atomically reserves a send slot: counts sends in the window and inserts the
+   * reservation in one IMMEDIATE transaction, so concurrent calls cannot both pass.
+   */
+  reserveSend(grantId: string, limitPerWindow: number, windowSeconds = 3600): boolean {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const used = this.countSendsSince(grantId, now() - windowSeconds);
+      if (used >= limitPerWindow) {
+        this.db.exec('ROLLBACK');
+        return false;
+      }
+      this.db.prepare('INSERT INTO send_log(grant_id, created_at) VALUES (?, ?)').run(grantId, now());
+      this.db.exec('COMMIT');
+      return true;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /** Gives back the most recent reservation (SMTP submit failed). */
+  releaseSend(grantId: string): void {
+    this.db.prepare('DELETE FROM send_log WHERE rowid = (SELECT rowid FROM send_log WHERE grant_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1)').run(grantId);
   }
 
   // ---- housekeeping

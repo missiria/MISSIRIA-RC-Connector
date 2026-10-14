@@ -15,7 +15,7 @@ describe('SessionPool', () => {
     const seen: string[] = [];
     const clients: Array<MailClient & { closed: boolean }> = [];
     const pool = new SessionPool(deps, (_g, pass) => { seen.push(pass); const c = fakeClient(); clients.push(c); return c; }, 1000);
-    const grant = deps.store.insertGrant({ id: 'g1', kind: 'pat', username: 'u@example.test', imap_host: 'h', imap_port: 993, smtp_host: 'h', smtp_port: 587, sealed: Buffer.from(await sealedFor(deps, 'pw-1'), 'base64'), scopes: ['mail:read'], client_id: null, label: null });
+    const grant = deps.store.insertGrant({ id: 'g1', kind: 'pat', username: 'u@example.test', email: null, imap_host: 'h', imap_port: 993, imap_secure: true, smtp_host: 'h', smtp_port: 587, sealed: Buffer.from(await sealedFor(deps, 'pw-1'), 'base64'), scopes: ['mail:read'], client_id: null, label: null });
     const a = await pool.acquire(grant.id);
     pool.release(grant.id);
     const b = await pool.acquire(grant.id);
