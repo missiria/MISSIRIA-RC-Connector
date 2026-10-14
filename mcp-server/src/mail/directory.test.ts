@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MailboxDirectory, directoryAlias, parseDirectory } from './directory.js';
+import { IdentityMap, MailboxDirectory, directoryAlias, parseDirectory } from './directory.js';
 
 // The real list of a 36-mailbox host (ADR-003 target); aliases must be unique and predictable.
 const LIVE = [
@@ -56,5 +56,13 @@ describe('ADR-003 mailbox directory', () => {
     writeFileSync(file, 'a@one.test\nb@two.test\n');
     utimesSync(file, new Date(Date.now() + 5000), new Date(Date.now() + 5000));
     expect(d.count).toBe(2);
+  });
+
+  it('identity map: per-login allowed From addresses, lower-cased, comments ignored', () => {
+    const m = IdentityMap.fromLines(['# generated', 'contact@eksneks.com Support@eksneks.com info@eksneks.com', 'contact@yazzicars.com', '']);
+    expect([...m.for('contact@eksneks.com')]).toEqual(['support@eksneks.com', 'info@eksneks.com']);
+    expect(m.for('contact@yazzicars.com').size).toBe(0);
+    expect(m.for('nobody@x.test').size).toBe(0);
+    expect(m.count).toBe(2);
   });
 });

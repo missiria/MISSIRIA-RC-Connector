@@ -50,11 +50,14 @@ function requireExplicitMailbox(ctx: ToolContext, a: { account?: string | undefi
   }
 }
 
-/** The address a reply should carry: the recipient address in the mailbox's own domain, else the mailbox address. */
-export function replyFrom(mailbox: Address, recipients: Address[]): Address {
-  const domain = mailbox.address.slice(mailbox.address.lastIndexOf('@') + 1).toLowerCase();
-  const hit = recipients.find((r) => r.address.slice(r.address.lastIndexOf('@') + 1).toLowerCase() === domain);
-  return hit ? { name: '', address: hit.address } : mailbox;
+/**
+ * The address a reply should carry: the recipient address that is a verified identity of this
+ * mailbox (an alias the MTA delivers into it), else the mailbox address. Message headers are
+ * attacker-controlled, so "same domain" is not enough: only the configured identity list counts.
+ */
+export function replyFrom(mailbox: Address, recipients: Address[], identities: Set<string>): Address {
+  const hit = recipients.find((r) => identities.has(r.address.toLowerCase()));
+  return hit ? { name: '', address: hit.address.toLowerCase() } : mailbox;
 }
 
 function decodeAttachments(list: Array<{ filename: string; mime: string; base64: string }> | undefined, maxBytes: number) {
@@ -147,7 +150,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         if (!original) return toolError(new ToolError('not_found', `message ${uid} not found in ${a.folder}`));
         // Reply from the address the message was sent to when it belongs to this mailbox's domain
         // (support@/info@ aliases delivered into one mailbox), else from the mailbox itself.
-        const from = replyFrom(senderFor(ctx, account), [...original.to, ...original.cc]);
+        const from = replyFrom(senderFor(ctx, account), [...original.to, ...original.cc], ctx.deps.identities?.for(account.username) ?? new Set());
         const mine = new Set([from.address.toLowerCase(), senderFor(ctx, account).address.toLowerCase()]);
         const to = (original.replyTo.length ? original.replyTo : original.from).filter((x) => !mine.has(x.address.toLowerCase()));
         const cc = a.reply_all ? [...original.to, ...original.cc].filter((x) => !mine.has(x.address.toLowerCase()) && !to.some((t) => t.address === x.address)) : [];

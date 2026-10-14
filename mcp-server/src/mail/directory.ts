@@ -102,3 +102,62 @@ function byDomain(all: DirectoryEntry[], domain: string): DirectoryEntry | undef
   if (hits.length === 1) return hits[0];
   return hits.find((e) => e.login.startsWith('contact@'));
 }
+
+/**
+ * Reply identities: for each mailbox login, the addresses the MTA delivers into it (virtual
+ * aliases). File format: `login addr1 addr2 …` per line, `#` comments. Replies may carry one of
+ * these as From; anything else, including same-domain addresses found in a message's headers,
+ * is refused (headers are attacker-controlled).
+ */
+export class IdentityMap {
+  private cache = new Map<string, Set<string>>();
+  private mtime = -1;
+
+  private constructor(private readonly path: string | null, fixed?: Map<string, Set<string>>) {
+    if (fixed) this.cache = fixed;
+  }
+
+  static fromFile(path: string): IdentityMap {
+    const m = new IdentityMap(path);
+    m.load();
+    return m;
+  }
+
+  static fromLines(lines: string[]): IdentityMap {
+    return new IdentityMap(null, parseIdentities(lines.join('\n')));
+  }
+
+  private load(): void {
+    if (!this.path) return;
+    const m = statSync(this.path).mtimeMs;
+    if (m !== this.mtime) {
+      this.cache = parseIdentities(readFileSync(this.path, 'utf8'));
+      this.mtime = m;
+    }
+  }
+
+  /** Lower-cased addresses allowed as From for this login (never includes the login itself; callers add it). */
+  for(login: string): Set<string> {
+    this.load();
+    return this.cache.get(login.toLowerCase()) ?? new Set();
+  }
+
+  get count(): number {
+    this.load();
+    return this.cache.size;
+  }
+}
+
+export function parseIdentities(text: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*$/, '').trim().toLowerCase();
+    if (!line) continue;
+    const [login, ...addrs] = line.split(/\s+/);
+    if (!login) continue;
+    const set = out.get(login) ?? new Set<string>();
+    for (const a of addrs) if (a.includes('@') && a.length <= 320) set.add(a);
+    out.set(login, set);
+  }
+  return out;
+}

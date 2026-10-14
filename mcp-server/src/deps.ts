@@ -5,7 +5,7 @@ import type { Logger } from './log.js';
 import type { KeyPair } from './crypto/seal.js';
 import type { SessionPool } from './mail/pool.js';
 import type { SmtpSender } from './mail/smtp.js';
-import type { MailboxDirectory } from './mail/directory.js';
+import type { MailboxDirectory, IdentityMap } from './mail/directory.js';
 
 export interface Deps {
   cfg: Config;
@@ -22,4 +22,6 @@ export interface Deps {
   fetch?: typeof fetch;
   /** ADR-003: server-wide mode. Both present only when ALL_MAILBOXES_* and MAILBOX_DIRECTORY are configured. */
   allMailboxes?: { masterSecret: string; directory: MailboxDirectory };
+  /** Addresses that deliver into each mailbox (from the MTA alias map); replies may only use these as From. */
+  identities?: IdentityMap;
 }

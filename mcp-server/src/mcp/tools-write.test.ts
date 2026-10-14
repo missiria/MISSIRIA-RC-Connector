@@ -9,7 +9,7 @@ import type { Deps } from '../deps.js';
 import type { MailClient, MessageDetail, Flag } from '../mail/types.js';
 import type { SmtpSender, SmtpCredentials } from '../mail/smtp.js';
 import { parseRaw } from '../mail/parse.js';
-import { MailboxDirectory } from '../mail/directory.js';
+import { IdentityMap, MailboxDirectory } from '../mail/directory.js';
 
 class CaptureSmtp implements SmtpSender {
   sent: Array<{ creds: SmtpCredentials; raw: Buffer; envelope: { from: string; to: string[] } }> = [];
@@ -158,6 +158,7 @@ describe('write tools', () => {
   it('ADR-003: sending from a server mailbox authenticates with the master login and uses the real address as From', async () => {
     const { client, smtp, mail, deps, f } = await setup(['mail:read', 'mail:send'], { ALL_MAILBOXES_USER: 'rccmaster', ALL_MAILBOXES_ADMINS: 'alice@example.test' });
     deps.allMailboxes = { masterSecret: 'master-pw', directory: MailboxDirectory.fromLines(['contact@yazzicars.test']) };
+    deps.identities = IdentityMap.fromLines(['contact@yazzicars.test support@yazzicars.test info@yazzicars.test']);
     deps.store.setGrantAllMailboxes(f.grant.grant_id, true);
     // no mailbox named → refused, nothing sent
     const vague = await client.callTool({ name: 'send_message', arguments: { to: ['bob@example.test'], subject: 'Which brand?', text: 'Hi' } });
@@ -175,6 +176,10 @@ describe('write tools', () => {
     expect(smtp.sent[0]!.envelope.from).toBe('support@yazzicars.test');
     expect((await parseRaw(smtp.sent[0]!.raw)).headers.get('from')).toMatchObject({ value: [{ address: 'support@yazzicars.test' }] });
     expect(deps.store.listAuditForUser('contact@yazzicars.test').map((a) => a.tool)).toContain('reply_message');
+    // a same-domain address that is NOT a verified identity (spoofed To header) is never used as From
+    mail.toOverride = [{ name: '', address: 'ceo@yazzicars.test' }];
+    smtp.sent = [];
+    expect(text(await client.callTool({ name: 'reply_message', arguments: { ref: 'yazzicars:INBOX/7', text: 'Sure.' } }))).toMatchObject({ from: 'contact@yazzicars.test' });
     // no recipient in the mailbox's domain → the mailbox address itself
     mail.toOverride = null;
     smtp.sent = [];

@@ -43,6 +43,8 @@ const schema = z.object({
   ALL_MAILBOXES_SEPARATOR: z.string().min(1).max(4).default('*'),
   /** File listing every mailbox login on the server (one per line, optional alias column). */
   MAILBOX_DIRECTORY: z.string().trim().min(1).optional(),
+  /** File listing, per mailbox login, the addresses that deliver into it (reply identities). */
+  MAILBOX_IDENTITIES: z.string().trim().min(1).optional(),
 });
 
 export type Config = z.infer<typeof schema>;

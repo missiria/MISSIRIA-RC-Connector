@@ -4,7 +4,7 @@ import { createLogger } from './log.js';
 import { isLoopbackHost, openStore } from './store/db.js';
 import { TokenService } from './oauth/tokens.js';
 import { readKeyPair } from './crypto/seal.js';
-import { MailboxDirectory } from './mail/directory.js';
+import { IdentityMap, MailboxDirectory } from './mail/directory.js';
 import type { Deps } from './deps.js';
 import { join } from 'node:path';
 
@@ -20,6 +20,10 @@ export function buildDeps(env: NodeJS.ProcessEnv = process.env, { requireKeys = 
     throw new Error(`No key pair in ${cfg.KEYS_DIR}. Run: rc-connector keygen --out ${cfg.KEYS_DIR}`);
   } else {
     log.warn({ keysDir: cfg.KEYS_DIR }, 'no key pair found; mail tools disabled until keygen runs');
+  }
+  if (cfg.MAILBOX_IDENTITIES) {
+    deps.identities = IdentityMap.fromFile(cfg.MAILBOX_IDENTITIES);
+    log.info({ mailboxes: deps.identities.count }, 'reply identities loaded');
   }
   if (allMailboxesConfigured(cfg)) {
     // ADR-003: one server-held credential reaches every mailbox. Loud on purpose.
