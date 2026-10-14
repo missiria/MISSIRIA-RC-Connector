@@ -158,6 +158,19 @@ describe('write tools', () => {
     const { client, smtp, mail, deps, f } = await setup(['mail:read', 'mail:send'], { ALL_MAILBOXES_USER: 'rccmaster', ALL_MAILBOXES_ADMINS: 'alice@example.test' });
     deps.allMailboxes = { masterSecret: 'master-pw', directory: MailboxDirectory.fromLines(['contact@yazzicars.test']) };
     deps.store.setGrantAllMailboxes(f.grant.grant_id, true);
+    // no mailbox named → refused, nothing sent
+    const vague = await client.callTool({ name: 'send_message', arguments: { to: ['bob@example.test'], subject: 'Which brand?', text: 'Hi' } });
+    expect(vague.isError).toBe(true);
+    expect(text(vague)).toMatchObject({ error: 'ambiguous_mailbox' });
+    expect(smtp.sent).toHaveLength(0);
+    const vagueReply = await client.callTool({ name: 'reply_message', arguments: { folder: 'INBOX', uid: 7, text: 'Hi' } });
+    expect(text(vagueReply)).toMatchObject({ error: 'ambiguous_mailbox' });
+    // `from` works like account
+    const viaFrom = await client.callTool({ name: 'send_message', arguments: { from: 'contact@yazzicars.test', to: ['bob@example.test'], subject: 'From yazzicars', text: 'Hi' } });
+    expect(viaFrom.isError).toBeFalsy();
+    expect(smtp.sent[0]!.creds).toMatchObject({ user: 'contact@yazzicars.test*rccmaster' });
+    smtp.sent = [];
+    mail.appendedSent = [];
     const r = await client.callTool({ name: 'send_message', arguments: { account: 'yazzicars', to: ['bob@example.test'], subject: 'From yazzicars', text: 'Hi' } });
     expect(r.isError).toBeFalsy();
     expect(text(r).recipients).toBe(1);

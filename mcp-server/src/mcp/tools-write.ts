@@ -36,6 +36,19 @@ function senderFor(ctx: ToolContext, account: AccountRow): Address {
   return { name: '', address };
 }
 
+/**
+ * Sending must never guess the mailbox: when a connection reaches more than one, the caller has
+ * to name it (account, from, or a folder prefix on replies). Reading may default to the primary
+ * mailbox; a message leaving under the wrong brand cannot be taken back.
+ */
+function requireExplicitMailbox(ctx: ToolContext, a: { account?: string | undefined }, tool: string): void {
+  if (a.account) return;
+  const reachable = ctx.deps.pool?.listReachable(ctx.principal.grantId) ?? [];
+  if (reachable.length > 1) {
+    throw new ToolError('ambiguous_mailbox', `${tool}: this connection reaches ${reachable.length} mailboxes, so say which one sends: pass account (alias, address or domain) or from (the sender address). Call list_accounts to see them. Nothing was sent.`);
+  }
+}
+
 function decodeAttachments(list: Array<{ filename: string; mime: string; base64: string }> | undefined, maxBytes: number) {
   // Estimate from string length first so oversized payloads are rejected before Buffer.from allocates.
   const estimated = (list ?? []).reduce((n, a) => n + Math.floor((a.base64.length * 3) / 4), 0);
@@ -88,13 +101,15 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     'send_message',
     {
       title: 'Send an email',
-      description: 'Send a new email from the connected mailbox (scope mail:send). Confirm recipients and content with the user before calling. A copy is stored in Sent.',
-      inputSchema: { to: z.array(addressArg).min(1).max(MAX_RECIPIENTS), cc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), bcc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), ...body, account: accountArg },
+      description: 'Send a new email (scope mail:send). Confirm recipients and content with the user before calling. A copy is stored in Sent. When the connection reaches several mailboxes you MUST say which one sends: `account` or `from` (the sender address, e.g. contact@iptv-premium-europe.com); the call is refused otherwise.',
+      inputSchema: { to: z.array(addressArg).min(1).max(MAX_RECIPIENTS), cc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), bcc: z.array(addressArg).max(MAX_RECIPIENTS).optional(), ...body, from: z.string().max(320).optional().describe('Sender mailbox: its address, alias or domain. Same effect as account.'), account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async (a) => {
+    async (raw) => {
+      const a = ctx.route(raw);
       try {
         ctx.requireScope('mail:send', 'send_message');
+        requireExplicitMailbox(ctx, a, 'send_message');
         const account = ctx.account(a.account);
         const res = await submit(ctx, 'send_message', { from: senderFor(ctx, account), to: toAddr(a.to), cc: toAddr(a.cc), bcc: toAddr(a.bcc), subject: a.subject, text: a.text, html: a.html, attachments: decodeAttachments(a.attachments, max) }, a.account);
         ctx.deps.store.insertAudit({ grant_id: ctx.principal.grantId, username: ctx.principal.username, tool: 'send_message', folder: null, outcome: 'ok', ms: 0, ip: ctx.ip, account: account.alias, account_user: account.username });
@@ -107,7 +122,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     'reply_message',
     {
       title: 'Reply to an email',
-      description: 'Reply to a message (scopes mail:send + mail:read). Sets In-Reply-To/References, quotes the original and marks it answered (the answered flag is part of replying, no mail:write needed). reply_all includes the original Cc.',
+      description: 'Reply to a message (scopes mail:send + mail:read). Sets In-Reply-To/References, quotes the original and marks it answered (the answered flag is part of replying, no mail:write needed). reply_all includes the original Cc. When the connection reaches several mailboxes, name the one holding the message: `account`, or folder "alias:INBOX"; refused otherwise.',
       inputSchema: { folder: folderArg, uid: uidArg, text: body.text, html: body.html, reply_all: z.boolean().default(false), attachments: body.attachments, account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -116,6 +131,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
       try {
         ctx.requireScope('mail:send', 'reply_message');
         ctx.requireScope('mail:read', 'reply_message'); // the original is read and partially echoed back
+        requireExplicitMailbox(ctx, a, 'reply_message');
         const account = ctx.account(a.account);
         const original = await ctx.withMail('reply_message:read', a.folder, (m) => m.getMessage(a.folder, a.uid, { format: 'text', maxChars: 20_000 }), a.account);
         if (!original) return toolError(new ToolError('not_found', `message ${a.uid} not found in ${a.folder}`));

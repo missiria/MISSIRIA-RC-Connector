@@ -46,6 +46,11 @@ click **All mailboxes (N)** once. From there:
   rifcars" → the assistant passes the alias, the address or just the domain.
 - No alias → your main mailbox, as before. "search everywhere" fans out across
   all of them.
+- Sending never guesses: with several mailboxes reachable, `send_message` and
+  `reply_message` are refused until the assistant names the sender (`from:
+  contact@iptv-premium-europe.com`, `account`, or a folder prefix on replies).
+  Say "send from contact@iptv-premium-europe.com to …" and the mail leaves
+  under that brand with a copy in that mailbox's Sent folder.
 - If an assistant keeps answering from the main mailbox, give it the selector
   inline: "search in:iptv-premium-europe for renewals", or folder
   `iptv-premium-europe:INBOX`. The server understands `in:`, `account:` and

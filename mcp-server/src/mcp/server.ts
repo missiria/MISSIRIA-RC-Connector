@@ -27,7 +27,7 @@ export interface ToolContext {
    * or a query that is just a mailbox name. Returns the arguments with `account` set and the
    * selector removed; a no-op when `account` was given or nothing matches.
    */
-  route<T extends { account?: string | undefined; folder?: string | undefined; query?: string | undefined }>(a: T): T;
+  route<T extends { account?: string | undefined; folder?: string | undefined; query?: string | undefined; from?: string | undefined }>(a: T): T;
 }
 
 export class ToolError extends Error {
@@ -61,6 +61,11 @@ export function buildToolContext(deps: Deps, principal: Principal, ip: string | 
       const known = (key: string): string | undefined => {
         try { return deps.pool!.resolve(principal.grantId, key).alias; } catch { return undefined; }
       };
+      // from: "contact@brand.tld" / "brand" (send tools)
+      if (a.from) {
+        const alias = known(a.from.replace(/^.*<([^>]+)>\s*$/, '$1'));
+        if (alias) return { ...a, account: alias };
+      }
       // folder "alias:INBOX"
       if (a.folder) {
         const m = /^([^\s:/]{1,320}):(.+)$/.exec(a.folder);
