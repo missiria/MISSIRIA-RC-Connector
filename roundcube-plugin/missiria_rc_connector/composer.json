@@ -1,0 +1,33 @@
+{
+  "name": "missiria/roundcube-rc-connector",
+  "description": "MISSIRIA RC Connector: consent, CLI tokens and grant management for the Roundcube MCP connector",
+  "type": "roundcube-plugin",
+  "license": "MIT",
+  "homepage": "https://github.com/missiria/MISSIRIA-RC-Connector",
+  "authors": [{ "name": "MISSIRIA / EKSNEKS", "email": "contact@eksneks.com" }],
+  "keywords": ["roundcube", "plugin", "mcp", "ai", "oauth"],
+  "require": {
+    "php": ">=7.4",
+    "ext-sodium": "*",
+    "ext-curl": "*",
+    "ext-json": "*",
+    "roundcube/plugin-installer": ">=0.3.1"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload": {
+    "classmap": ["lib/"]
+  },
+  "scripts": {
+    "test": "phpunit --colors=always"
+  },
+  "extra": {
+    "roundcube": {
+      "min-version": "1.5.0"
+    }
+  },
+  "config": {
+    "allow-plugins": { "roundcube/plugin-installer": true }
+  }
+}

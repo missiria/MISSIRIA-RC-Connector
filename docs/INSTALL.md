@@ -248,9 +248,6 @@ if (strpos($s,"missiria_rc_connector")===false) {
   file_put_contents($f,$s); echo "plugin enabled\n";
 } else echo "already enabled\n";'
 
-# Optional audit cache table (MySQL/MariaDB)
-mysql roundcube < "$RC_DIR/plugins/missiria_rc_connector/SQL/mysql.initial.sql"
-
 # PHP opcache: reload FPM, never restart on a shared fleet host
 systemctl reload php*-fpm
 ```
@@ -352,3 +349,4 @@ It is idempotent: re-running updates code, keeps keys, env and grants.
 | SSE stream closes after 60 s | nginx `proxy_read_timeout` default | Use shipped vhost (`3600s`, `proxy_buffering off`). |
 | `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` on start | Node older than 22.13 | Step 2: install Node 22 LTS or 24. |
 | Roundcube shows blank settings page | PHP `sodium` extension missing | `apt install php8.x-sodium && systemctl reload php*-fpm`. |
+| Consent page loops back to login | Plugin not listed in `$config['plugins']` or `rcconnector` task blocked | Check step 6 enable block; `tail -f $RC_DIR/logs/errors.log`. |

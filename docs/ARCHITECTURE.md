@@ -48,8 +48,9 @@ logged-in Roundcube session:
 | Grant management | Settings page lists active grants (fetched from the internal API) with Revoke. |
 | Audit view | Read-only table of recent tool calls for the current user (fetched from the internal API). |
 
-The plugin stores **nothing secret** in the Roundcube database. The only table
-it owns (`rc_connector_audit_cache`) is an optional local cache of audit rows.
+The plugin stores **nothing** in the Roundcube database: no tables, no secrets.
+Grants, tokens and the audit log live on the MCP server and are read over the
+loopback API when the settings page renders.
 
 ### Component 2 — `mcp-server` (Node 22 LTS, TypeScript)
 

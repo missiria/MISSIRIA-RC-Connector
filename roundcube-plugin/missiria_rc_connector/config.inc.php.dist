@@ -1,0 +1,29 @@
+<?php
+/**
+ * MISSIRIA RC Connector — plugin configuration.
+ * Copy to config.inc.php and fill in the values printed by the MCP server install.
+ */
+
+// Public URL of the MCP server (browser-facing). No trailing slash.
+$config['rc_connector_public_url'] = 'https://mcp.example.com';
+
+// Loopback URL of the MCP server internal API (server-to-server). No trailing slash.
+$config['rc_connector_internal_url'] = 'http://127.0.0.1:8787';
+
+// INTERNAL_KEY from /etc/missiria-rc-connector/env (64 hex chars).
+$config['rc_connector_internal_key'] = '';
+
+// Public key printed by `rc-connector keygen` ("base64:...").
+$config['rc_connector_server_pubkey'] = '';
+
+// Scopes pre-selected on the consent screen.
+$config['rc_connector_default_scopes'] = ['mail:read'];
+
+// Allow users to grant mail:write / mail:send. false = strictly read-only connector.
+$config['rc_connector_allow_write'] = true;
+
+// Timeout (seconds) for calls to the internal API.
+$config['rc_connector_timeout'] = 3;
+
+// How many audit rows to show in Settings → AI Connectors.
+$config['rc_connector_audit_rows'] = 50;

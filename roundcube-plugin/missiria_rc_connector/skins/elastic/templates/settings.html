@@ -1,0 +1,26 @@
+<roundcube:object name="doctype" value="html5" />
+<html>
+<head>
+<title><roundcube:object name="pagetitle" /></title>
+<roundcube:include file="includes/links.html" />
+</head>
+<body class="task-settings action-plugin-rc-connector">
+
+<roundcube:include file="includes/layout.html" />
+<roundcube:include file="includes/menu.html" />
+<roundcube:include file="includes/settings-menu.html" />
+
+<div id="layout-content" class="selected no-list" role="main">
+	<div class="header">
+		<a class="button icon back-sidebar-button" href="#back"><span class="inner"><roundcube:label name="back" /></span></a>
+		<span class="header-title"><roundcube:label name="missiria_rc_connector.ai_connectors" /></span>
+		<roundcube:include file="includes/header-buttons.html" />
+	</div>
+	<div class="content formcontent" id="rc-connector-content">
+		<roundcube:object name="rcconnectorsettings" />
+	</div>
+</div>
+
+<roundcube:include file="includes/footer.html" />
+</body>
+</html>

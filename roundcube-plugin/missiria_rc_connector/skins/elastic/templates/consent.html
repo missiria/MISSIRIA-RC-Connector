@@ -1,0 +1,18 @@
+<roundcube:object name="doctype" value="html5" />
+<html>
+<head>
+<title><roundcube:object name="pagetitle" /></title>
+<roundcube:include file="includes/links.html" />
+</head>
+<body class="task-rcconnector action-consent rc-connector-page">
+<div class="rc-connector-card">
+	<div class="rc-connector-brand">
+		<roundcube:object name="logo" type="link" /><span class="rc-connector-title"><roundcube:label name="missiria_rc_connector.consent_title" /></span>
+	</div>
+	<roundcube:object name="message" id="messagestack" />
+	<roundcube:object name="rcconnectorconsent" />
+	<p class="rc-connector-footer"><roundcube:label name="missiria_rc_connector.powered_by" /></p>
+</div>
+<roundcube:include file="includes/footer.html" />
+</body>
+</html>
