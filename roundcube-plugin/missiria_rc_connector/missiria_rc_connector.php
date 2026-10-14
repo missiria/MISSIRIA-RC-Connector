@@ -43,18 +43,20 @@ class missiria_rc_connector extends rcube_plugin
         $this->load_config();
         $this->add_texts('localization/', false);
 
-        $this->register_task('rcconnector');
         $this->add_hook('startup', [$this, 'on_startup']);
         $this->add_hook('login_after', [$this, 'on_login_after']);
 
-        // consent (needs an authenticated session; Roundcube enforces the login)
-        $this->register_action('consent', [$this, 'consent_action']);
-
-        // settings section
+        // Settings section. These MUST be registered before register_task(): once a plugin owns a
+        // task, rcube_plugin::register_action() prefixes every action with that task name, which
+        // would turn 'plugin.rc_connector' into 'rcconnector.plugin.rc_connector' (→ error 524).
         $this->add_hook('settings_actions', [$this, 'settings_actions']);
         $this->register_action('plugin.rc_connector', [$this, 'settings_action']);
         $this->register_action('plugin.rc_connector-create', [$this, 'create_token_action']);
         $this->register_action('plugin.rc_connector-revoke', [$this, 'revoke_action']);
+
+        // Own task for the consent screen (dispatched as 'rcconnector.consent'; login enforced by Roundcube)
+        $this->register_task('rcconnector');
+        $this->register_action('consent', [$this, 'consent_action']);
     }
 
     // ------------------------------------------------------------------ hooks
