@@ -29,4 +29,21 @@ describe('SessionPool', () => {
     await expect(pool.acquire(grant.id)).rejects.toThrow(/revoked/);
     await pool.closeAll();
   });
+
+  it('ADR-002: sessions are keyed per account and unknown aliases are rejected with the known list', async () => {
+    const deps = await makeDeps();
+    const users: string[] = [];
+    const pool = new SessionPool(deps, (acc) => { users.push(acc.username); return fakeClient(); }, 1000);
+    deps.store.insertGrant({ id: 'g1', kind: 'pat', username: 'a@example.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: Buffer.from(await sealedFor(deps, 'pw-a'), 'base64'), scopes: ['mail:read'], client_id: null, label: null });
+    const linked = deps.store.insertAccount({ grant_id: 'g1', alias: 'brand', username: 'b@brand.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: Buffer.from(await sealedFor(deps, 'pw-b'), 'base64'), is_primary: false });
+    await pool.acquire('g1');
+    await pool.acquire('g1', 'brand');
+    expect(users).toEqual(['a@example.test', 'b@brand.test']);
+    expect(pool.size).toBe(2);
+    await expect(pool.acquire('g1', 'ghost')).rejects.toThrow(/unknown mailbox alias "ghost".*brand/);
+    await pool.withSecret('g1', 'brand', async (pw, acc) => { expect(pw).toBe('pw-b'); expect(acc.id).toBe(linked.id); });
+    await pool.invalidateAccount(linked.id);
+    expect(pool.size).toBe(1);
+    await pool.closeAll();
+  });
 });

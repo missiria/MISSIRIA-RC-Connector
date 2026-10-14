@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeApp, internalHeaders, sealedFor, fullFlow } from '../test/harness.js';
+import { newLinkCode, normalizeLinkCode } from './routes.js';
 
 describe('internal API', () => {
   it('rejects missing or wrong key', async () => {
@@ -61,5 +62,83 @@ describe('internal API', () => {
     deps.store.insertAudit({ grant_id: f.grant.grant_id, username: 'alice@example.test', tool: 'search_messages', folder: 'INBOX', outcome: 'ok', ms: 12, ip: null });
     const rows = await (await app.request('/internal/audit?user=alice@example.test', { headers: internalHeaders(deps) })).json() as Array<{ tool: string }>;
     expect(rows[0]?.tool).toBe('search_messages');
+  });
+
+  describe('ADR-002 link codes', () => {
+    const json = (deps: Awaited<ReturnType<typeof makeApp>>['deps'], body: unknown) => ({ method: 'POST', headers: internalHeaders(deps), body: JSON.stringify(body) });
+
+    it('code format and normalisation', () => {
+      const code = newLinkCode();
+      expect(code).toMatch(/^LINK-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+      expect(normalizeLinkCode(' link-abcd-ef23 ')).toBe('ABCDEF23');
+      expect(normalizeLinkCode('ABCDEF23')).toBe('ABCDEF23');
+    });
+
+    it('owner mints a code, the other mailbox redeems it once, both sides see and can unlink the account', async () => {
+      const { app, deps } = await makeApp();
+      const f = await fullFlow(app, deps, { username: 'contact@eksneks.test' });
+      const gid = f.grant.grant_id;
+
+      // only the grant owner can mint
+      expect((await app.request('/internal/link-codes', json(deps, { grant_id: gid, user: 'mallory@example.test' }))).status).toBe(404);
+      const minted = await app.request('/internal/link-codes', json(deps, { grant_id: gid, user: 'contact@eksneks.test' }));
+      expect(minted.status).toBe(201);
+      const { code } = await minted.json() as { code: string };
+
+      // preview without consuming
+      const preview = await (await app.request(`/internal/link-codes/${code}`, { headers: internalHeaders(deps) })).json() as { client_name: string; primary: string };
+      expect(preview).toMatchObject({ client_name: 'Test AI', primary: 'contact@eksneks.test' });
+
+      // the primary mailbox itself cannot be linked again
+      const self = await app.request('/internal/link-codes/redeem', json(deps, { code, username: 'contact@eksneks.test', sealed: await sealedFor(deps) }));
+      expect(self.status).toBe(409);
+
+      // redeem as the other mailbox (lowercase code with spaces still accepted)
+      const redeemed = await app.request('/internal/link-codes/redeem', json(deps, { code: code.toLowerCase().replace(/-/g, ' '), username: 'contact@yazzicars.test', email: 'contact@yazzicars.test', sealed: await sealedFor(deps, 'pw2'), alias: 'Yazzicars' }));
+      expect(redeemed.status).toBe(201);
+      const acc = await redeemed.json() as { account_id: string; alias: string; client_name: string };
+      expect(acc).toMatchObject({ alias: 'yazzicars', client_name: 'Test AI' });
+
+      // single use
+      expect((await app.request('/internal/link-codes/redeem', json(deps, { code, username: 'third@example.test', sealed: await sealedFor(deps) }))).status).toBe(410);
+
+      // owner's grant list shows both accounts; the linked user sees the link on their side
+      const grants = await (await app.request('/internal/grants?user=contact@eksneks.test', { headers: internalHeaders(deps) })).json() as Array<{ accounts: Array<{ alias: string; primary: boolean }> }>;
+      expect(grants[0]!.accounts.map((a) => [a.alias, a.primary])).toEqual([['eksneks', true], ['yazzicars', false]]);
+      const links = await (await app.request('/internal/links?user=contact@yazzicars.test', { headers: internalHeaders(deps) })).json() as Array<{ id: string; alias: string; client_name: string; primary: string }>;
+      expect(links).toHaveLength(1);
+      expect(links[0]).toMatchObject({ alias: 'yazzicars', client_name: 'Test AI', primary: 'contact@eksneks.test' });
+
+      // unlink: strangers 404, primary refused, linked user allowed
+      expect((await app.request(`/internal/accounts/${acc.account_id}?user=mallory@example.test`, { method: 'DELETE', headers: internalHeaders(deps) })).status).toBe(404);
+      const primaryId = grants[0]!.accounts[0] as unknown as { id: string };
+      expect((await app.request(`/internal/accounts/${primaryId.id}?user=contact@eksneks.test`, { method: 'DELETE', headers: internalHeaders(deps) })).status).toBe(400);
+      const un = await app.request(`/internal/accounts/${acc.account_id}?user=contact@yazzicars.test`, { method: 'DELETE', headers: internalHeaders(deps) });
+      expect(await un.json()).toEqual({ unlinked: true });
+      expect(deps.store.listAccounts(gid)).toHaveLength(1);
+    });
+
+    it('rejects bad aliases, duplicate aliases, expired codes and caps active codes', async () => {
+      const { app, deps } = await makeApp();
+      const f = await fullFlow(app, deps, { username: 'owner@example.test' });
+      const gid = f.grant.grant_id;
+      const mint = async () => (await (await app.request('/internal/link-codes', json(deps, { grant_id: gid, user: 'owner@example.test' }))).json() as { code: string }).code;
+      const c1 = await mint();
+      expect((await app.request('/internal/link-codes/redeem', json(deps, { code: c1, username: 'b@example.test', sealed: await sealedFor(deps), alias: 'Bad Alias!' }))).status).toBe(400);
+      // alias clash with the primary ("example")
+      expect((await app.request('/internal/link-codes/redeem', json(deps, { code: c1, username: 'b@example.test', sealed: await sealedFor(deps), alias: 'example' }))).status).toBe(409);
+      // default alias dedupes instead of failing when none is supplied
+      const ok = await app.request('/internal/link-codes/redeem', json(deps, { code: c1, username: 'b@example.test', sealed: await sealedFor(deps) }));
+      expect(ok.status).toBe(201);
+      expect(((await ok.json()) as { alias: string }).alias).toBe('example-2');
+      // expired
+      const c2 = await mint();
+      deps.store.db.prepare('UPDATE link_codes SET expires_at = 1').run();
+      expect((await app.request('/internal/link-codes/redeem', json(deps, { code: c2, username: 'c@example.test', sealed: await sealedFor(deps) }))).status).toBe(410);
+      expect((await app.request(`/internal/link-codes/${c2}`, { headers: internalHeaders(deps) })).status).toBe(410);
+      // cap
+      for (let i = 0; i < 5; i++) await mint();
+      expect((await app.request('/internal/link-codes', json(deps, { grant_id: gid, user: 'owner@example.test' }))).status).toBe(429);
+    });
   });
 });

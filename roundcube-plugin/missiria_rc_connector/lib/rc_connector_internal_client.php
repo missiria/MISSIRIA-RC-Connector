@@ -89,6 +89,56 @@ class rc_connector_internal_client
         return $r['status'] === 200 && !empty($r['data']['revoked']);
     }
 
+    // ---- ADR-002: several mailboxes per connection
+
+    /** @return array{code:string, expires_at:int} */
+    public function createLinkCode(string $grantId, string $user): array
+    {
+        $r = $this->request('POST', '/link-codes', ['grant_id' => $grantId, 'user' => $user]);
+        if ($r['status'] !== 201 || empty($r['data']['code'])) {
+            throw new RuntimeException('link code creation failed: ' . $this->describe($r));
+        }
+        return $r['data'];
+    }
+
+    /** Preview of the connection a code belongs to; null when unknown, used or expired. */
+    public function previewLinkCode(string $code): ?array
+    {
+        $r = $this->request('GET', '/link-codes/' . rawurlencode($code));
+        return $r['status'] === 200 && is_array($r['data']) ? $r['data'] : null;
+    }
+
+    /**
+     * Links the current mailbox (payload = mailbox facts + sealed password + code + alias).
+     * Throws rc_connector_link_exception with the server error code on a 4xx so the UI can
+     * translate it (code_invalid, code_used, code_expired, already_linked, alias_taken, invalid_alias).
+     */
+    public function redeemLinkCode(array $payload): array
+    {
+        $r = $this->request('POST', '/link-codes/redeem', $payload);
+        if ($r['status'] === 201 && !empty($r['data']['alias'])) {
+            return $r['data'];
+        }
+        $err = is_array($r['data']) ? (string) ($r['data']['error'] ?? '') : '';
+        if ($r['status'] >= 400 && $r['status'] < 500 && $err !== '') {
+            throw new rc_connector_link_exception($err, $r['status']);
+        }
+        throw new RuntimeException('link failed: ' . $this->describe($r));
+    }
+
+    /** Connections other mailboxes have linked this user into. */
+    public function listLinks(string $user): array
+    {
+        $r = $this->request('GET', '/links', null, ['user' => $user]);
+        return $r['status'] === 200 && is_array($r['data']) ? $r['data'] : [];
+    }
+
+    public function unlinkAccount(string $accountId, string $user): bool
+    {
+        $r = $this->request('DELETE', '/accounts/' . rawurlencode($accountId), null, ['user' => $user]);
+        return $r['status'] === 200 && !empty($r['data']['unlinked']);
+    }
+
     public function listAudit(string $user, int $limit): array
     {
         $r = $this->request('GET', '/audit', null, ['user' => $user, 'limit' => $limit]);
@@ -126,4 +176,9 @@ class rc_connector_internal_client
         }
         return ['status' => $status, 'body' => (string) $out];
     }
+}
+
+/** A 4xx from the link endpoints; getMessage() is the server error code. */
+class rc_connector_link_exception extends RuntimeException
+{
 }

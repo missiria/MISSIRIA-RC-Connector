@@ -15,12 +15,12 @@ Execute in order; P1 and P2 can run in parallel once P0 is pushed.
 | P6 | EKSN-0156 | Platform onboarding verified: ChatGPT, Claude, Claude Code, Codex, Cursor, VS Code, Gemini, n8n | stdio proxy done, verification pending |
 | P7 | EKSN-0157 | Security hardening, audit, rate limits, tests, CI, CodeQL | in progress |
 | P8 | EKSN-0158 | v1.0.0: npm, Packagist, Docker, changelog, announcement | todo |
+| P9 | EKSN-0159 | Several mailboxes per connection (ADR-002): accounts, aliases, link codes, `list_accounts`, `account` on every tool | code done, live rollout 2026-10-14 |
 
 ## v1.1 candidates
 
 - Roundcube identities as `From` on `send_message`
 - CalDAV read (calendar plugin users)
 - Sieve filter tools (managesieve)
-- Multi-account grants
 - PostgreSQL store option
 - Admin dashboard of grants across users

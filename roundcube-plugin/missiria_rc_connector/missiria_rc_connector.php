@@ -10,6 +10,7 @@
  *  - consent screen for OAuth authorization requests started on the MCP server
  *  - sealing the mailbox password with the server public key (libsodium sealed box)
  *  - Settings → "AI Connectors": CLI tokens, active connections, audit view
+ *  - linking further mailboxes to a connection with one-time codes (ADR-002)
  *  - HMAC-authenticated address-book lookup used by the search_contacts tool
  *
  * No credentials or tokens are ever stored by this plugin.
@@ -18,7 +19,7 @@
  * @see https://github.com/missiria/MISSIRIA-RC-Connector
  */
 // Roundcube autoloads only its own classes; the plugin's helpers are plain PHP files.
-foreach (['rc_connector_sealer', 'rc_connector_signature', 'rc_connector_internal_client', 'rc_connector_mailhost', 'rc_connector_scopes'] as $rc_connector_lib) {
+foreach (['rc_connector_sealer', 'rc_connector_signature', 'rc_connector_internal_client', 'rc_connector_mailhost', 'rc_connector_scopes', 'rc_connector_alias'] as $rc_connector_lib) {
     require_once __DIR__ . '/lib/' . $rc_connector_lib . '.php';
 }
 unset($rc_connector_lib);
@@ -53,6 +54,9 @@ class missiria_rc_connector extends rcube_plugin
         $this->register_action('plugin.rc_connector', [$this, 'settings_action']);
         $this->register_action('plugin.rc_connector-create', [$this, 'create_token_action']);
         $this->register_action('plugin.rc_connector-revoke', [$this, 'revoke_action']);
+        $this->register_action('plugin.rc_connector-linkcode', [$this, 'linkcode_action']);
+        $this->register_action('plugin.rc_connector-join', [$this, 'join_action']);
+        $this->register_action('plugin.rc_connector-unlink', [$this, 'unlink_action']);
 
         // Own task for the consent screen (dispatched as 'rcconnector.consent'; login enforced by Roundcube)
         $this->register_task('rcconnector');
@@ -229,27 +233,67 @@ class missiria_rc_connector extends rcube_plugin
                 . html::p('hint', $this->gettext(['name' => 'token_usage_hint', 'vars' => ['url' => rcube::Q(rtrim((string) $this->rc->config->get('rc_connector_public_url'), '/') . '/mcp')]])));
         }
 
-        // active connections
+        if (!empty($_SESSION['rc_connector_link_code'])) {
+            $code = $_SESSION['rc_connector_link_code'];
+            $this->rc->session->remove('rc_connector_link_code');
+            $html .= html::div('rc-connector-token boxinformation', html::p(null, $this->gettext('link_code_shown'))
+                . html::tag('code', ['id' => 'rc-connector-link-code'], rcube::Q($code))
+                . ' ' . html::tag('button', ['type' => 'button', 'class' => 'btn btn-sm btn-secondary', 'data-copy' => '#rc-connector-link-code'], $this->gettext('copy'))
+                . html::tag('ol', 'hint rc-connector-steps',
+                    html::tag('li', null, $this->gettext('link_step_1')) . html::tag('li', null, $this->gettext('link_step_2')) . html::tag('li', null, $this->gettext('link_step_3'))));
+        }
+
+        // active connections (each with its linked mailboxes)
         $grants = $online ? $this->client()->listGrants($user) : [];
         $rows   = '';
         foreach ($grants as $g) {
             $revoke = $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-revoke']), 'class' => 'inline'],
                 (new html_hiddenfield(['name' => 'id', 'value' => $g['id']]))->show()
                 . html::tag('button', ['type' => 'submit', 'class' => 'btn btn-sm btn-danger', 'data-confirm' => $this->gettext('revoke_confirm')], $this->gettext('revoke')));
+            $addbox = $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-linkcode']), 'class' => 'inline'],
+                (new html_hiddenfield(['name' => 'id', 'value' => $g['id']]))->show()
+                . html::tag('button', ['type' => 'submit', 'class' => 'btn btn-sm btn-secondary', 'title' => $this->gettext('add_mailbox_title')], $this->gettext('add_mailbox')));
             $rows .= html::tag('tr', null,
                 html::tag('td', null, rcube::Q($g['client_name'] ?: ($g['kind'] === 'pat' ? 'CLI token' : 'OAuth client')))
                 . html::tag('td', null, rcube::Q($g['kind'] === 'pat' ? 'CLI token' : 'OAuth'))
                 . html::tag('td', 'rc-scopes', rcube::Q(implode(' ', $g['scopes'] ?? [])))
-                . html::tag('td', null, $this->fmt_date($g['created_at'] ?? null))
+                . html::tag('td', 'rc-accounts', $this->accounts_html((array) ($g['accounts'] ?? [])))
                 . html::tag('td', null, $this->fmt_date($g['last_used_at'] ?? null))
-                . html::tag('td', null, $revoke));
+                . html::tag('td', 'rc-actions', $addbox . ' ' . $revoke));
         }
         $table = html::tag('table', ['class' => 'table table-sm rc-connector-grants'],
             html::tag('thead', null, html::tag('tr', null,
                 html::tag('th', null, $this->gettext('col_client')) . html::tag('th', null, $this->gettext('col_type')) . html::tag('th', null, $this->gettext('col_scopes'))
-                . html::tag('th', null, $this->gettext('col_created')) . html::tag('th', null, $this->gettext('col_last_used')) . html::tag('th', null, '')))
+                . html::tag('th', null, $this->gettext('col_mailboxes')) . html::tag('th', null, $this->gettext('col_last_used')) . html::tag('th', null, '')))
             . html::tag('tbody', null, $rows ?: html::tag('tr', null, html::tag('td', ['colspan' => 6, 'class' => 'hint'], $this->gettext('no_grants')))));
-        $html .= html::div('rc-connector-section', html::tag('h3', null, $this->gettext('active_connections')) . $table);
+        $html .= html::div('rc-connector-section', html::tag('h3', null, $this->gettext('active_connections')) . html::p('hint', $this->gettext('connections_hint')) . $table);
+
+        // connections this mailbox was linked into from another mailbox + join form
+        $links = $online ? $this->client()->listLinks($user) : [];
+        $lrows = '';
+        foreach ($links as $l) {
+            $unlink = $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-unlink']), 'class' => 'inline'],
+                (new html_hiddenfield(['name' => 'id', 'value' => $l['id']]))->show()
+                . html::tag('button', ['type' => 'submit', 'class' => 'btn btn-sm btn-danger', 'data-confirm' => $this->gettext('unlink_confirm')], $this->gettext('unlink')));
+            $lrows .= html::tag('tr', null,
+                html::tag('td', null, rcube::Q($l['client_name'] ?: 'OAuth client'))
+                . html::tag('td', null, rcube::Q($l['primary'] ?? ''))
+                . html::tag('td', 'rc-alias', html::tag('code', null, rcube::Q($l['alias'] ?? '')))
+                . html::tag('td', null, $this->fmt_date($l['last_used_at'] ?? null))
+                . html::tag('td', null, $unlink));
+        }
+        $codeInput  = new html_inputfield(['name' => 'code', 'class' => 'form-control', 'maxlength' => 40, 'placeholder' => 'LINK-XXXX-XXXX', 'autocomplete' => 'off', 'spellcheck' => 'false']);
+        $aliasInput = new html_inputfield(['name' => 'alias', 'class' => 'form-control', 'maxlength' => 32, 'pattern' => '[a-z0-9][a-z0-9_-]{0,31}']);
+        $join = $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-join']), 'class' => 'rc-connector-join'],
+            html::p('hint', $this->gettext('join_hint'))
+            . html::div('form-group', html::label(['for' => 'rc-link-code'], $this->gettext('link_code')) . $codeInput->show('', ['id' => 'rc-link-code']))
+            . html::div('form-group', html::label(['for' => 'rc-alias'], $this->gettext('alias')) . $aliasInput->show(rc_connector_alias::suggest($user, $this->rc->get_user_email()), ['id' => 'rc-alias'])
+                . html::p('hint', $this->gettext('alias_hint')))
+            . html::tag('button', ['type' => 'submit', 'class' => 'btn btn-primary'], $this->gettext('join_connection')));
+        $ltable = $lrows ? html::tag('table', ['class' => 'table table-sm rc-connector-links'],
+            html::tag('thead', null, html::tag('tr', null, html::tag('th', null, $this->gettext('col_client')) . html::tag('th', null, $this->gettext('col_primary_mailbox')) . html::tag('th', null, $this->gettext('col_alias')) . html::tag('th', null, $this->gettext('col_last_used')) . html::tag('th', null, '')))
+            . html::tag('tbody', null, $lrows)) : '';
+        $html .= html::div('rc-connector-section', html::tag('h3', null, $this->gettext('linked_into')) . $ltable . $join);
 
         // create CLI token
         $allowWrite = (bool) $this->rc->config->get('rc_connector_allow_write', true);
@@ -272,14 +316,89 @@ class missiria_rc_connector extends rcube_plugin
         $audit = $online ? $this->client()->listAudit($user, (int) $this->rc->config->get('rc_connector_audit_rows', 50)) : [];
         $arows = '';
         foreach ($audit as $a) {
-            $arows .= html::tag('tr', null, html::tag('td', null, $this->fmt_date($a['created_at'] ?? null)) . html::tag('td', null, rcube::Q($a['tool'] ?? '')) . html::tag('td', null, rcube::Q($a['folder'] ?? '')) . html::tag('td', 'rc-outcome-' . rcube::Q($a['outcome'] ?? ''), rcube::Q($a['outcome'] ?? '')) . html::tag('td', null, (int) ($a['ms'] ?? 0) . ' ms'));
+            $arows .= html::tag('tr', null, html::tag('td', null, $this->fmt_date($a['created_at'] ?? null)) . html::tag('td', null, rcube::Q($a['tool'] ?? '')) . html::tag('td', 'rc-alias', rcube::Q($a['account'] ?? '')) . html::tag('td', null, rcube::Q($a['folder'] ?? '')) . html::tag('td', 'rc-outcome-' . rcube::Q($a['outcome'] ?? ''), rcube::Q($a['outcome'] ?? '')) . html::tag('td', null, (int) ($a['ms'] ?? 0) . ' ms'));
         }
         $atable = html::tag('table', ['class' => 'table table-sm rc-connector-audit'],
-            html::tag('thead', null, html::tag('tr', null, html::tag('th', null, $this->gettext('col_when')) . html::tag('th', null, $this->gettext('col_tool')) . html::tag('th', null, $this->gettext('col_folder')) . html::tag('th', null, $this->gettext('col_outcome')) . html::tag('th', null, $this->gettext('col_duration'))))
-            . html::tag('tbody', null, $arows ?: html::tag('tr', null, html::tag('td', ['colspan' => 5, 'class' => 'hint'], $this->gettext('no_audit')))));
+            html::tag('thead', null, html::tag('tr', null, html::tag('th', null, $this->gettext('col_when')) . html::tag('th', null, $this->gettext('col_tool')) . html::tag('th', null, $this->gettext('col_alias')) . html::tag('th', null, $this->gettext('col_folder')) . html::tag('th', null, $this->gettext('col_outcome')) . html::tag('th', null, $this->gettext('col_duration'))))
+            . html::tag('tbody', null, $arows ?: html::tag('tr', null, html::tag('td', ['colspan' => 6, 'class' => 'hint'], $this->gettext('no_audit')))));
         $html .= html::div('rc-connector-section', html::tag('h3', null, $this->gettext('recent_activity')) . html::p('hint', $this->gettext('audit_hint')) . $atable);
 
         return html::div(['id' => 'rc-connector', 'class' => 'rc-connector'], $html);
+    }
+
+    /** Alias chips for one connection; linked mailboxes get an Unlink button, the primary a marker. */
+    private function accounts_html(array $accounts): string
+    {
+        $out = '';
+        foreach ($accounts as $a) {
+            $chip = html::tag('code', ['title' => rcube::Q($a['email'] ?? $a['username'] ?? '')], rcube::Q($a['alias'] ?? ''));
+            if (!empty($a['primary'])) {
+                $out .= html::span('rc-account rc-account-primary', $chip . ' ' . html::span('hint', $this->gettext('primary_mailbox')));
+                continue;
+            }
+            $unlink = $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-unlink']), 'class' => 'inline'],
+                (new html_hiddenfield(['name' => 'id', 'value' => $a['id'] ?? '']))->show()
+                . html::tag('button', ['type' => 'submit', 'class' => 'btn btn-link btn-sm rc-unlink', 'data-confirm' => $this->gettext('unlink_confirm'), 'title' => $this->gettext('unlink')], '×'));
+            $out .= html::span('rc-account', $chip . $unlink);
+        }
+        return $out ?: html::span('hint', '—');
+    }
+
+    /** Step 1 of linking: the grant owner asks for a one-time code to type on the other mailbox. */
+    public function linkcode_action()
+    {
+        $id = $this->in('id', rcube_utils::INPUT_POST);
+        if ($id && preg_match('/^[0-9a-f]{32}$/', $id)) {
+            try {
+                $res = $this->client()->createLinkCode($id, $this->rc->get_user_name());
+                $_SESSION['rc_connector_link_code'] = $res['code'];
+                $this->rc->output->show_message($this->gettext('link_code_created'), 'confirmation');
+            } catch (Throwable $e) {
+                rcube::raise_error(['code' => 500, 'message' => 'rc_connector: ' . $e->getMessage()], true, false);
+                $this->rc->output->show_message($this->gettext(strpos($e->getMessage(), 'too_many_codes') !== false ? 'link_too_many' : 'server_unreachable'), 'error');
+            }
+        }
+        $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
+    }
+
+    /** Step 2 of linking: this mailbox joins the connection the code belongs to. */
+    public function join_action()
+    {
+        $code  = trim($this->in('code', rcube_utils::INPUT_POST));
+        $alias = rc_connector_alias::normalize($this->in('alias', rcube_utils::INPUT_POST));
+        if ($code === '' || strlen($code) > 40) {
+            $this->rc->output->show_message($this->gettext('link_code_invalid'), 'error');
+        } elseif ($alias === '') {
+            $this->rc->output->show_message($this->gettext('alias_invalid'), 'error');
+        } else {
+            try {
+                $res = $this->client()->redeemLinkCode($this->mailbox_payload() + ['code' => $code, 'alias' => $alias]);
+                $this->rc->output->show_message($this->gettext(['name' => 'linked_ok', 'vars' => ['client' => $res['client_name'] ?? '', 'alias' => $res['alias'] ?? $alias]]), 'confirmation');
+            } catch (rc_connector_link_exception $e) {
+                $map = ['code_invalid' => 'link_code_invalid', 'code_used' => 'link_code_used', 'code_expired' => 'link_code_expired', 'already_linked' => 'already_linked', 'alias_taken' => 'alias_taken', 'invalid_alias' => 'alias_invalid'];
+                $this->rc->output->show_message($this->gettext($map[$e->getMessage()] ?? 'link_failed'), 'error');
+            } catch (Throwable $e) {
+                rcube::raise_error(['code' => 500, 'message' => 'rc_connector: ' . $e->getMessage()], true, false);
+                $this->rc->output->show_message($this->gettext('server_unreachable'), 'error');
+            }
+        }
+        $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
+    }
+
+    /** Removes a linked mailbox; the server allows it to the mailbox itself and to the connection owner. */
+    public function unlink_action()
+    {
+        $id = $this->in('id', rcube_utils::INPUT_POST);
+        $ok = false;
+        if ($id && preg_match('/^[0-9a-f]{32}$/', $id)) {
+            try {
+                $ok = $this->client()->unlinkAccount($id, $this->rc->get_user_name());
+            } catch (Throwable $e) {
+                rcube::raise_error(['code' => 500, 'message' => 'rc_connector: ' . $e->getMessage()], true, false);
+            }
+        }
+        $this->rc->output->show_message($this->gettext($ok ? 'unlinked' : 'unlink_failed'), $ok ? 'confirmation' : 'error');
+        $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
     }
 
     public function create_token_action()

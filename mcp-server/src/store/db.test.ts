@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { openStore, now } from './db.js';
+import { openStore, now, defaultAlias, MIGRATIONS, Store } from './db.js';
+import { DatabaseSync } from 'node:sqlite';
 
 function grantFixture(id: string, username = 'alice@example.test') {
   return {
@@ -12,8 +13,8 @@ function grantFixture(id: string, username = 'alice@example.test') {
 describe('Store', () => {
   it('migrates idempotently', () => {
     const s = openStore(':memory:');
-    expect(s.migrate()).toBe(1);
-    expect(s.migrate()).toBe(1);
+    expect(s.migrate()).toBe(2);
+    expect(s.migrate()).toBe(2);
     s.close();
   });
 
@@ -86,5 +87,60 @@ describe('Store', () => {
     s.recordSend('g1'); s.recordSend('g1');
     expect(s.countSendsSince('g1', now() - 3600)).toBe(2);
     expect(s.countSendsSince('g1', now() + 10)).toBe(0);
+  });
+
+  it('ADR-002: insertGrant creates a primary account; aliases derive from the domain and dedupe', () => {
+    const s = openStore(':memory:');
+    s.insertGrant(grantFixture('g1', 'contact@yazzicars.test'));
+    const primary = s.getPrimaryAccount('g1');
+    expect(primary).toMatchObject({ alias: 'yazzicars', username: 'contact@yazzicars.test', is_primary: true });
+    const linked = s.insertAccount({ grant_id: 'g1', alias: 'yazzicars', username: 'other@yazzicars.test', email: null, imap_host: 'h', imap_port: 993, imap_tls: 'implicit', smtp_host: 'h', smtp_port: 587, smtp_tls: 'starttls', sealed: Buffer.from('x'), is_primary: false });
+    expect(linked.alias).toBe('yazzicars-2');
+    expect(s.listAccounts('g1').map((a) => a.alias)).toEqual(['yazzicars', 'yazzicars-2']);
+    expect(s.getAccountByAlias('g1', 'YAZZICARS-2')?.id).toBe(linked.id);
+    expect(s.revokeAccount(primary!.id)).toBe(false); // primary cannot be unlinked
+    expect(s.revokeAccount(linked.id)).toBe(true);
+    expect(s.listAccounts('g1')).toHaveLength(1);
+    s.revokeGrant('g1');
+    expect(s.getPrimaryAccount('g1')).toBeUndefined();
+  });
+
+  it('ADR-002: defaultAlias picks the brand label', () => {
+    expect(defaultAlias('contact@eksneks.com', null)).toBe('eksneks');
+    expect(defaultAlias('x', 'sales@mail.example.co.uk')).toBe('example');
+    expect(defaultAlias('contact_yazzicars', null)).toBe('contact_yazzicars');
+    expect(defaultAlias('Weird Name!!', null)).toBe('weird-name');
+    expect(defaultAlias('@@', null)).toBe('mailbox');
+  });
+
+  it('ADR-002: migrating a v1 database backfills one primary account per grant', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec(MIGRATIONS[0]!);
+    db.prepare('INSERT INTO schema_version(version) VALUES (1)').run();
+    db.prepare(`INSERT INTO grants(id, kind, username, email, imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls, sealed, scopes, client_id, label, created_at)
+                VALUES ('g1','oauth','contact@eksneks.com','contact@eksneks.com','127.0.0.1',143,'none','mail.eksneks.com',587,'starttls',x'00','mail:read',NULL,NULL,1)`).run();
+    db.close();
+    // Reopen through the Store on a file-less path is not possible; replay the same steps through a Store on :memory:
+    const s = new Store(':memory:');
+    s.db.exec(MIGRATIONS[0]!);
+    s.db.prepare('INSERT INTO schema_version(version) VALUES (1)').run();
+    s.db.prepare(`INSERT INTO grants(id, kind, username, email, imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls, sealed, scopes, client_id, label, created_at)
+                  VALUES ('g1','oauth','contact@eksneks.com','contact@eksneks.com','127.0.0.1',143,'none','mail.eksneks.com',587,'starttls',x'00','mail:read',NULL,NULL,1)`).run();
+    expect(s.migrate()).toBe(2);
+    expect(s.getPrimaryAccount('g1')).toMatchObject({ alias: 'eksneks', username: 'contact@eksneks.com', imap_tls: 'none', is_primary: true });
+    expect(s.migrate()).toBe(2);
+    expect(s.listAccounts('g1')).toHaveLength(1);
+  });
+
+  it('ADR-002: link codes are single use and expire', () => {
+    const s = openStore(':memory:');
+    s.insertGrant(grantFixture('g1'));
+    s.insertLinkCode({ hash: 'h1', grant_id: 'g1', created_by: 'alice@example.test', expires_at: now() + 600 });
+    s.insertLinkCode({ hash: 'h2', grant_id: 'g1', created_by: 'alice@example.test', expires_at: now() - 1 });
+    expect(s.countActiveLinkCodes('g1')).toBe(1);
+    expect(s.useLinkCode('h1')).toBe(true);
+    expect(s.useLinkCode('h1')).toBe(false);
+    expect(s.useLinkCode('h2')).toBe(false);
+    expect(s.countActiveLinkCodes('g1')).toBe(0);
   });
 });

@@ -55,4 +55,29 @@ final class InternalClientTest extends TestCase
         });
         $this->assertFalse($c->healthz());
     }
+
+    public function testLinkCodeFlowAndTypedErrors(): void
+    {
+        $c = $this->client([
+            ['status' => 201, 'body' => json_encode(['code' => 'LINK-AAAA-BBBB', 'expires_at' => 1])],
+            ['status' => 201, 'body' => json_encode(['account_id' => 'a1', 'alias' => 'yazzicars', 'client_name' => 'Claude'])],
+            ['status' => 410, 'body' => json_encode(['error' => 'code_used'])],
+            ['status' => 200, 'body' => json_encode([['id' => 'a1', 'alias' => 'yazzicars']])],
+            ['status' => 200, 'body' => json_encode(['unlinked' => true])],
+        ]);
+        $this->assertSame('LINK-AAAA-BBBB', $c->createLinkCode('g1', 'owner@example.test')['code']);
+        $this->assertSame(['grant_id' => 'g1', 'user' => 'owner@example.test'], json_decode($this->calls[0]['body'], true));
+        $this->assertSame('yazzicars', $c->redeemLinkCode(['code' => 'x', 'alias' => 'yazzicars', 'username' => 'u', 'sealed' => 's'])['alias']);
+        $this->assertSame('http://127.0.0.1:8787/internal/link-codes/redeem', $this->calls[1]['url']);
+        try {
+            $c->redeemLinkCode(['code' => 'x']);
+            $this->fail('expected link exception');
+        } catch (rc_connector_link_exception $e) {
+            $this->assertSame('code_used', $e->getMessage());
+            $this->assertSame(410, $e->getCode());
+        }
+        $this->assertCount(1, $c->listLinks('u@example.test'));
+        $this->assertTrue($c->unlinkAccount('a1', 'u@example.test'));
+        $this->assertStringContainsString('/internal/accounts/a1?user=u%40example.test', $this->calls[4]['url']);
+    }
 }

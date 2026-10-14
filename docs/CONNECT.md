@@ -12,6 +12,30 @@ scopes you need. `mail:read` is enough for "read and summarise my mail".
 
 ---
 
+## Several mailboxes, one connector
+
+You do not need one connector per mailbox. A connection can reach every
+mailbox you own on the same Roundcube, each under a short **alias** you say in
+chat: "list folders in yazzicars", "search eksneks for invoices", "reply from
+rifcars". Without an alias the assistant uses the mailbox you connected first
+(the *main* mailbox). `list_accounts` tells the assistant which aliases exist.
+
+Linking another mailbox (once per mailbox, about 30 seconds):
+
+1. Logged in as the main mailbox: Settings → **AI Connectors** → on the
+   connection row click **Add mailbox**. A one-time code `LINK-XXXX-XXXX`
+   appears (valid 10 minutes).
+2. Log out, log in to the mailbox to add, Settings → **AI Connectors** →
+   **Join a connection**: paste the code, pick the alias, **Join**.
+3. Back in the chat, ask for that alias. No reconnect needed in ChatGPT or
+   Claude.
+
+The second mailbox's password is sealed from its own Roundcube session, exactly
+like the first one; nothing is typed or copied between mailboxes. Either side
+can **Unlink** later; revoking the connection removes every linked mailbox.
+
+---
+
 ## ChatGPT (Connectors / Apps)
 
 Requirements: ChatGPT Plus, Pro, Team, Enterprise or Edu; **Developer mode**

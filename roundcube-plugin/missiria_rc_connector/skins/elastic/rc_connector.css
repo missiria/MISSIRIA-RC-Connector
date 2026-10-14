@@ -29,3 +29,14 @@
 .rc-connector .hint { color: #777; font-size: .9rem; }
 .rc-connector td.rc-outcome-ok { color: #1d6b32; }
 .rc-connector td[class^="rc-outcome-"]:not(.rc-outcome-ok) { color: #8a1c1c; }
+
+/* ADR-002: linked mailboxes */
+.rc-connector .rc-account { display: inline-flex; align-items: center; gap: .15rem; margin: 0 .35rem .25rem 0; padding: .1rem .4rem; background: #f4f4f4; border-radius: 1rem; font-size: .85rem; }
+.rc-connector .rc-account code { background: none; padding: 0; }
+.rc-connector .rc-account-primary { background: #e6f6ea; }
+.rc-connector .rc-account .rc-unlink { padding: 0 .25rem; line-height: 1; color: #8a1c1c; text-decoration: none; }
+.rc-connector td.rc-actions { white-space: nowrap; }
+.rc-connector td.rc-alias, .rc-connector .rc-alias code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; }
+.rc-connector .rc-connector-steps { margin: .5rem 0 0 1.25rem; padding: 0; }
+.rc-connector .rc-connector-join { max-width: 480px; }
+.rc-connector .rc-connector-join .form-group { margin-bottom: .75rem; }

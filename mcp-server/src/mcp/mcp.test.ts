@@ -61,7 +61,8 @@ describe('MCP endpoint', () => {
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(['fetch', 'get_attachment', 'get_message', 'get_quota', 'get_thread', 'list_folders', 'search', 'search_messages']));
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(16);
+    expect(names).toContain('list_accounts');
 
     const folders = await client.callTool({ name: 'list_folders', arguments: {} });
     expect(JSON.parse((folders.content as Array<{ text: string }>)[0]!.text).folders[0].path).toBe('INBOX');
@@ -92,7 +93,7 @@ describe('MCP endpoint', () => {
     const { client } = await setup();
     const s = await client.callTool({ name: 'search', arguments: { query: 'invoice' } });
     const results = JSON.parse((s.content as Array<{ text: string }>)[0]!.text).results;
-    expect(results[0]).toMatchObject({ id: 'INBOX/3', title: 'Invoice 123' });
+    expect(results[0]).toMatchObject({ id: 'example:INBOX/3', title: 'Invoice 123' });
     expect(results[0].url).toContain('https://webmail.example.test/?_task=mail&_mbox=INBOX&_uid=3');
     const fch = await client.callTool({ name: 'fetch', arguments: { id: results[0].id } });
     const doc = JSON.parse((fch.content as Array<{ text: string }>)[0]!.text);
@@ -128,5 +129,40 @@ describe('MCP endpoint', () => {
     expect(r.status).toBe(200);
     const body = await r.json() as { result: { serverInfo: { name: string } } };
     expect(body.result.serverInfo.name).toBe('missiria-rc-connector');
+  });
+
+  it('ADR-002: linked mailbox is addressable by alias, search fans out, fetch accepts alias ids', async () => {
+    const { client, deps, f } = await setup();
+    // link a second mailbox (as the plugin would) and give it a different password so we can see which session opened
+    const sealed = await sealedFor(deps, 'yazz-pass');
+    deps.store.insertAccount({ grant_id: f.grant.grant_id, alias: 'yazzicars', username: 'contact@yazzicars.test', email: 'contact@yazzicars.test', imap_host: 'localhost', imap_port: 143, imap_tls: 'none', smtp_host: 'localhost', smtp_port: 587, smtp_tls: 'none', sealed: Buffer.from(sealed, 'base64'), is_primary: false });
+
+    const accounts = JSON.parse((((await client.callTool({ name: 'list_accounts', arguments: {} })).content) as Array<{ text: string }>)[0]!.text).accounts;
+    expect(accounts).toEqual([{ alias: 'example', email: 'alice@example.test', primary: true }, { alias: 'yazzicars', email: 'contact@yazzicars.test', primary: false }]);
+
+    const folders = await client.callTool({ name: 'list_folders', arguments: { account: 'yazzicars' } });
+    expect(JSON.parse((folders.content as Array<{ text: string }>)[0]!.text).account).toBe('yazzicars');
+    expect(MockMail.created).toEqual([{ user: 'contact@yazzicars.test', pass: 'yazz-pass' }]);
+
+    const bad = await client.callTool({ name: 'list_folders', arguments: { account: 'nope' } });
+    expect(bad.isError).toBe(true);
+    expect(JSON.parse((bad.content as Array<{ text: string }>)[0]!.text)).toMatchObject({ error: 'unknown_account' });
+    expect(JSON.parse((bad.content as Array<{ text: string }>)[0]!.text).message).toContain('yazzicars');
+
+    // fan-out search: both mailboxes, ids prefixed with the alias, titles tagged
+    const s = await client.callTool({ name: 'search', arguments: { query: 'invoice' } });
+    const results = JSON.parse((s.content as Array<{ text: string }>)[0]!.text).results as Array<{ id: string; title: string }>;
+    expect(results.filter((r) => r.id.startsWith('yazzicars:'))).toHaveLength(2);
+    expect(results.filter((r) => r.id.startsWith('example:'))).toHaveLength(2);
+    expect(results[0]!.title).toMatch(/^\[(example|yazzicars)\] /);
+    const fch = await client.callTool({ name: 'fetch', arguments: { id: 'yazzicars:INBOX/3' } });
+    expect(JSON.parse((fch.content as Array<{ text: string }>)[0]!.text).metadata.account).toBe('yazzicars');
+    const legacy = await client.callTool({ name: 'fetch', arguments: { id: 'INBOX/3' } });
+    expect(JSON.parse((legacy.content as Array<{ text: string }>)[0]!.text).metadata.account).toBe('example');
+
+    // audit rows carry the alias; one pooled session per account
+    const audit = deps.store.listAuditForUser('alice@example.test');
+    expect(audit.find((a) => a.tool === 'list_folders' && a.outcome === 'ok')?.account).toBe('yazzicars');
+    expect(deps.pool!.size).toBe(2);
   });
 });

@@ -1,7 +1,8 @@
 # Architecture — MISSIRIA RC Connector
 
-> Status: ADR-001 accepted 2026-10-14. Change this file through a pull request
-> that updates the "Decision" section and appends to "History".
+> Status: ADR-001 accepted 2026-10-14, ADR-002 accepted 2026-10-14. Change this
+> file through a pull request that updates the relevant decision and appends to
+> "History".
 
 ## Problem
 
@@ -57,10 +58,10 @@ loopback API when the settings page renders.
 | Module | Role |
 |---|---|
 | `oauth/` | OAuth 2.1 Authorization Server: `/oauth/register` (RFC 7591 DCR), `/oauth/authorize` (redirects to Roundcube consent), `/oauth/token` (code + refresh, PKCE S256 mandatory), `/oauth/revoke`, `/.well-known/oauth-authorization-server` (RFC 8414), `/.well-known/oauth-protected-resource` (RFC 9728). |
-| `internal/` | Loopback-only API used by the plugin: `POST /internal/grants`, `POST /internal/pats`, `GET /internal/grants?user=`, `DELETE /internal/grants/:id`, `GET /internal/audit?user=`. Authenticated with `X-Internal-Key`. |
+| `internal/` | Loopback-only API used by the plugin: `POST /internal/grants`, `POST /internal/pats`, `GET /internal/grants?user=`, `DELETE /internal/grants/:id`, `POST /internal/link-codes`, `POST /internal/link-codes/redeem`, `GET /internal/links?user=`, `DELETE /internal/accounts/:id`, `GET /internal/audit?user=`. Authenticated with `X-Internal-Key`. |
 | `mcp/` | `@modelcontextprotocol/sdk` server. Streamable HTTP at `/mcp`. Bearer = OAuth access token or `rcc_` PAT. Returns `WWW-Authenticate: Bearer resource_metadata=…` on 401 so clients discover OAuth automatically. |
-| `mail/` | `imapflow` + `nodemailer` + `mailparser`. One pooled IMAP connection per grant, idle-closed after 5 min. Credentials unsealed in memory only when a connection opens. |
-| `store/` | SQLite via Node's built-in `node:sqlite` (no native build): clients, auth requests, grants (sealed blob), tokens (hashed), audit. |
+| `mail/` | `imapflow` + `nodemailer` + `mailparser`. One pooled IMAP connection per grant+account, idle-closed after 5 min. Credentials unsealed in memory only when a connection opens. |
+| `store/` | SQLite via Node's built-in `node:sqlite` (no native build): clients, auth requests, grants, accounts (sealed blob per mailbox), link codes, tokens (hashed), audit. |
 | `cli` | `rc-connector keygen`, `rc-connector migrate`, `rc-connector stdio --url --token` (local proxy for stdio-only clients). |
 
 ### Tools exposed over MCP
@@ -81,6 +82,7 @@ loopback API when the settings page renders.
 | `set_flags` | `mail:write` | seen / flagged / answered. |
 | `delete_message` | `mail:write` | Moves to Trash. Permanent expunge is **not** exposed. |
 | `get_quota` | `mail:read` | |
+| `list_accounts` | any | Mailboxes linked to this connection (ADR-002); every tool takes an optional `account` alias. |
 
 Scopes: `mail:read`, `mail:write`, `mail:send`, `contacts:read`. Default
 consent pre-selects `mail:read` only.
@@ -108,7 +110,43 @@ consent pre-selects `mail:read` only.
    `Authorization: Bearer rcc_…`, or runs `rc-connector stdio` as a local
    proxy when the client only supports stdio.
 
-## Alternatives considered
+## ADR-002 — Several mailboxes, one connection (accounts)
+
+### Problem
+
+A Roundcube host often serves many mailboxes owned by the same person or team
+(one per brand or domain). One grant = one mailbox meant one connector entry
+per mailbox in ChatGPT/Claude, which does not scale past a handful.
+
+### Decision
+
+A **grant** stays the unit of consent, tokens, scopes and revocation. It now
+owns one or more **accounts**, each a mailbox with its own sealed password and
+IMAP/SMTP parameters, addressed by a short **alias** (`eksneks`, `yazzicars`).
+
+- Consent and CLI-token creation create the grant plus its *primary* account.
+- Additional mailboxes are **linked** from Roundcube: the grant owner creates a
+  one-time link code (10 min, hashed at rest, single use, at most 5 active per
+  grant); the owner then logs in to the other mailbox and redeems the code
+  there. The second mailbox's password is sealed from *its own* Roundcube
+  session, so no password is ever typed or forwarded between mailboxes.
+- Either side can unlink an account; revoking the grant revokes every account.
+- Every MCP tool accepts an optional `account` alias; `list_accounts` lists
+  them. Omitted alias = primary account. `search` (ChatGPT contract) without an
+  alias fans out across all accounts and prefixes result ids with the alias.
+- Sessions are pooled per grant+account. Send uses the account's own SMTP
+  credentials and identity. Audit rows record the account.
+- Rate limits remain per grant (the connection is the actor).
+
+### Alternatives considered
+
+| Option | Why not |
+|---|---|
+| One connector per mailbox (distinct URL per mailbox) | 20 connectors per platform; the AI still cannot search across mailboxes. |
+| Dovecot master user / admin credential inside the connector | Privileged credential on the MCP host; breaks the "web host and connector hold only what the user consented to" model. |
+| Linking by typing the second mailbox's password on the first mailbox's page | Password crosses a browser form outside Roundcube's login path; link codes keep every password inside its own session. |
+
+## Alternatives considered (ADR-001)
 
 | Option | Why not |
 |---|---|
@@ -135,3 +173,4 @@ consent pre-selects `mail:read` only.
 ## History
 
 - 2026-10-14 — ADR-001 accepted (initial architecture).
+- 2026-10-14 — ADR-002 accepted (several mailboxes per grant: accounts, aliases, link codes).

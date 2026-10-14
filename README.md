@@ -24,6 +24,8 @@ Gmail and Outlook.
 
 ## Tools
 
+One connection can hold several mailboxes (`list_accounts`, optional `account` alias on every tool, see docs/CONNECT.md).
+
 | Read (`mail:read`) | Write (`mail:write`) | Send (`mail:send`) | Contacts |
 |---|---|---|---|
 | `list_folders`, `search_messages`, `get_message`, `get_thread`, `get_attachment`, `get_quota`, `search`, `fetch` | `create_draft`, `move_message`, `set_flags`, `delete_message` (to Trash) | `send_message`, `reply_message` | `search_contacts` |

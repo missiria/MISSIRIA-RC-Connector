@@ -117,7 +117,7 @@ export interface MailClient {
 
 export class MailError extends Error {
   constructor(
-    public readonly code: 'imap_auth_failed' | 'imap_unavailable' | 'not_found' | 'too_large' | 'invalid_argument',
+    public readonly code: 'imap_auth_failed' | 'imap_unavailable' | 'not_found' | 'too_large' | 'invalid_argument' | 'unknown_account',
     message: string,
   ) {
     super(message);
