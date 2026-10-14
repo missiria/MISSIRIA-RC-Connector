@@ -10,6 +10,7 @@ User=rcmcp
 Group=rcmcp
 WorkingDirectory=/opt/missiria-rc-connector/app
 EnvironmentFile=/etc/missiria-rc-connector/env
+Environment=NODE_OPTIONS=--no-warnings=ExperimentalWarning
 ExecStart=/usr/bin/node dist/server.js
 Restart=on-failure
 RestartSec=3

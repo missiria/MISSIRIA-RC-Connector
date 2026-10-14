@@ -135,12 +135,17 @@ as_app_node "cd '$APP_DIR' && npm ci --no-audit --no-fund && npm run build && np
 # --- 4. Keys and environment ------------------------------------------------
 if [[ ! -f "$KEYS_DIR/server.sk" ]]; then
   log "Generating sealing key pair"
-  run sudo -u "$APP_USER" "$NODE_BIN" "$APP_DIR/dist/cli.js" keygen --out "$KEYS_DIR"
+  # /etc/missiria-rc-connector is root-owned; generate as root, then hand the private key to rcmcp (0600).
+  run env NODE_OPTIONS=--no-warnings=ExperimentalWarning "$NODE_BIN" "$APP_DIR/dist/cli.js" keygen --out "$KEYS_DIR"
+  run chown "$APP_USER":"$APP_USER" "$KEYS_DIR/server.sk"
+  run chmod 600 "$KEYS_DIR/server.sk"
+  run chown root:"$APP_USER" "$KEYS_DIR/server.pk"
+  run chmod 640 "$KEYS_DIR/server.pk"
 else
   log "Key pair already present, keeping it"
 fi
 PUBKEY="(dry-run)"
-[[ $DRY -eq 1 ]] || PUBKEY="$(sudo -u "$APP_USER" "$NODE_BIN" "$APP_DIR/dist/cli.js" pubkey --keys "$KEYS_DIR")"
+[[ $DRY -eq 1 ]] || PUBKEY="$(NODE_OPTIONS=--no-warnings=ExperimentalWarning "$NODE_BIN" "$APP_DIR/dist/cli.js" pubkey --keys "$KEYS_DIR")"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   log "Writing $ENV_FILE"
@@ -176,7 +181,7 @@ else
 fi
 
 log "Running database migrations"
-run sudo -u "$APP_USER" bash -c "set -a; . '$ENV_FILE'; set +a; '$NODE_BIN' '$APP_DIR/dist/cli.js' migrate"
+run sudo -u "$APP_USER" bash -c "set -a; . '$ENV_FILE'; set +a; NODE_OPTIONS=--no-warnings=ExperimentalWarning '$NODE_BIN' '$APP_DIR/dist/cli.js' migrate"
 
 # --- 5. systemd ---------------------------------------------------------------
 log "Installing systemd unit"
