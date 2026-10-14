@@ -86,7 +86,11 @@ else
   arch="$(uname -m)"; case "$arch" in x86_64) narch=x64 ;; aarch64) narch=arm64 ;; *) die "unsupported arch $arch" ;; esac
   tarball="node-v$NODE_VERSION-linux-$narch.tar.xz"
   run install -d -o root -g "$APP_USER" -m 755 "$NODE_DIR"
-  run bash -c "cd /tmp && curl -fsSLO 'https://nodejs.org/dist/v$NODE_VERSION/$tarball' && curl -fsSLO 'https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt' && grep ' $tarball\$' SHASUMS256.txt | sha256sum -c - && tar -xJf '$tarball' -C '$NODE_DIR' --strip-components=1 && rm -f '$tarball' SHASUMS256.txt"
+  # Private, root-only scratch dir: nothing else on the host can swap the tarball between download and check.
+  run bash -c "tmp=\$(mktemp -d /root/.rc-connector-node.XXXXXX) && chmod 700 \"\$tmp\" && cd \"\$tmp\" \
+    && curl -fsSLO 'https://nodejs.org/dist/v$NODE_VERSION/$tarball' && curl -fsSLO 'https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt' \
+    && grep ' $tarball\$' SHASUMS256.txt | sha256sum -c - \
+    && tar -xJf '$tarball' -C '$NODE_DIR' --strip-components=1; rc=\$?; cd / && rm -rf \"\$tmp\"; exit \$rc"
   NODE_BIN="$NODE_DIR/bin/node"
 fi
 NODE_PATH_PREFIX="$(dirname "$NODE_BIN")"
