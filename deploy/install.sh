@@ -6,7 +6,7 @@
 # Usage:
 #   bash install.sh --mcp-host mcp.example.com --webmail-host webmail.example.com \
 #                   --rc-dir /var/www/roundcube --email admin@example.com \
-#                   [--ref main] [--port 8787] [--no-certbot] [--no-plugin] [--dry-run]
+#                   [--ref main] [--port 8787] [--web-user www-data] [--no-certbot] [--no-plugin] [--dry-run]
 #
 # Node: if the system node is older than 22.13 the installer does NOT replace it (pm2 apps may
 # depend on it); it downloads an official Node 22 tarball into /opt/missiria-rc-connector/node
@@ -29,7 +29,7 @@ NODE_DIR="$APP_HOME/node"      # private Node runtime when the system one is too
 NODE_BIN="/usr/bin/node"
 NODE_VERSION="22.20.0"
 
-MCP_HOST=""; WEBMAIL_HOST=""; RC_DIR=""; ADMIN_EMAIL=""; GIT_REF="main"
+MCP_HOST=""; WEBMAIL_HOST=""; RC_DIR=""; ADMIN_EMAIL=""; GIT_REF="main"; WEB_USER=""
 CERTBOT=1; PLUGIN=1; DRY=0
 
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -46,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --email)        ADMIN_EMAIL="$2"; shift 2 ;;
     --ref)          GIT_REF="$2"; shift 2 ;;
     --port)         PORT="$2"; shift 2 ;;
+    --web-user)     WEB_USER="$2"; shift 2 ;;
     --no-certbot)   CERTBOT=0; shift ;;
     --no-plugin)    PLUGIN=0; shift ;;
     --dry-run)      DRY=1; shift ;;
@@ -214,8 +215,13 @@ fi
 if [[ $PLUGIN -eq 1 ]]; then
   PLUGIN_SRC="$SRC_DIR/roundcube-plugin/missiria_rc_connector"
   PLUGIN_DST="$RC_DIR/plugins/missiria_rc_connector"
-  WEB_USER="$(stat -c %U "$RC_DIR/config/config.inc.php")"
-  log "Installing Roundcube plugin into $PLUGIN_DST (owner $WEB_USER)"
+  # The PHP-FPM pool user must be able to read the plugin and its config; Roundcube files are often root-owned.
+  if [[ -z "$WEB_USER" ]]; then
+    WEB_USER="$(grep -hsE '^\s*user\s*=' /etc/php/*/fpm/pool.d/*.conf 2>/dev/null | head -1 | sed -E 's/^\s*user\s*=\s*//; s/\s.*$//')"
+    WEB_USER="${WEB_USER:-www-data}"
+  fi
+  id -u "$WEB_USER" >/dev/null 2>&1 || die "web user '$WEB_USER' does not exist (pass --web-user)"
+  log "Installing Roundcube plugin into $PLUGIN_DST (readable by $WEB_USER)"
   run install -d "$PLUGIN_DST"
   run rsync -a --delete --exclude config.inc.php --exclude tests --exclude vendor --exclude phpunit.xml.dist "$PLUGIN_SRC/" "$PLUGIN_DST/"
   if [[ ! -f "$PLUGIN_DST/config.inc.php" ]]; then
@@ -226,12 +232,14 @@ if [[ $PLUGIN -eq 1 ]]; then
           -e "s|\['rc_connector_internal_key'\] = ''|['rc_connector_internal_key'] = '$INTERNAL_KEY'|" \
           -e "s|\['rc_connector_server_pubkey'\] = ''|['rc_connector_server_pubkey'] = '$PUBKEY'|" \
           "$PLUGIN_SRC/config.inc.php.dist" > "$PLUGIN_DST/config.inc.php"
-      chmod 640 "$PLUGIN_DST/config.inc.php"
     fi
   else
     log "Plugin config already present, keeping it"
   fi
-  run chown -R "$WEB_USER":"$WEB_USER" "$PLUGIN_DST"
+  # root owns the code (read-only for the web user); only config.inc.php holds a secret → root:<web group> 0640
+  run chown -R root:root "$PLUGIN_DST"
+  run chmod -R u=rwX,go=rX "$PLUGIN_DST"
+  [[ -f "$PLUGIN_DST/config.inc.php" ]] && run chown root:"$(id -gn "$WEB_USER")" "$PLUGIN_DST/config.inc.php" && run chmod 640 "$PLUGIN_DST/config.inc.php"
 
   if grep -q "missiria_rc_connector" "$RC_DIR/config/config.inc.php"; then
     log "Plugin already enabled in Roundcube config"
