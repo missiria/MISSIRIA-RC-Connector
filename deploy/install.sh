@@ -138,10 +138,15 @@ if [[ ! -f "$KEYS_DIR/server.sk" ]]; then
   # Root never executes code from the rcmcp-writable app dir: keygen runs as rcmcp into a private temp
   # dir, then root moves the two files into the root-owned KEYS_DIR with final owner/mode.
   if [[ $DRY -eq 0 ]]; then
-    keytmp="$(mktemp -d "$DATA_DIR/.keygen.XXXXXX")"
-    chown "$APP_USER":"$APP_USER" "$keytmp"; chmod 700 "$keytmp"
+    # Parent is root-only (/root); only the leaf is handed to rcmcp, so it cannot swap the directory itself.
+    keytmp="$(mktemp -d /root/.rc-connector-keygen.XXXXXX)"
+    chown -h "$APP_USER":"$APP_USER" "$keytmp"; chmod 700 "$keytmp"
     sudo -u "$APP_USER" env NODE_OPTIONS=--no-warnings=ExperimentalWarning "$NODE_BIN" "$APP_DIR/dist/cli.js" keygen --out "$keytmp" >/dev/null
-    [[ -f "$keytmp/server.sk" && -f "$keytmp/server.pk" ]] || die "keygen did not produce server.sk/server.pk"
+    for f in server.sk server.pk; do
+      p="$keytmp/$f"
+      [[ ! -L "$p" && -f "$p" ]] || die "keygen output $f is missing or not a regular file"
+      [[ "$(stat -c '%U %h' "$p")" == "$APP_USER 1" ]] || die "keygen output $f has unexpected owner or link count"
+    done
     install -o "$APP_USER" -g "$APP_USER" -m 600 "$keytmp/server.sk" "$KEYS_DIR/server.sk"
     install -o root -g "$APP_USER" -m 640 "$keytmp/server.pk" "$KEYS_DIR/server.pk"
     rm -rf "$keytmp"
@@ -153,7 +158,12 @@ else
 fi
 PUBKEY="(dry-run)"
 # server.pk is plain text ("base64:..."); read it directly instead of executing app code as root.
-[[ $DRY -eq 1 ]] || PUBKEY="$(tr -d '[:space:]' < "$KEYS_DIR/server.pk")"
+if [[ $DRY -eq 0 ]]; then
+  PUBKEY="$(tr -d '[:space:]' < "$KEYS_DIR/server.pk")"
+  # Strict shape check before the value is interpolated into PHP config.
+  [[ "$PUBKEY" =~ ^base64:[A-Za-z0-9+/]{43}=$ ]] || die "server.pk does not contain a valid base64 32-byte public key"
+fi
+[[ "$INTERNAL_KEY" =~ ^[0-9a-f]{64}$ ]] || die "INTERNAL_KEY in $ENV_FILE must be 64 hex characters"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   log "Writing $ENV_FILE"
