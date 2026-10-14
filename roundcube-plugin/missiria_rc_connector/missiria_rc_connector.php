@@ -17,6 +17,12 @@
  * @license MIT
  * @see https://github.com/missiria/MISSIRIA-RC-Connector
  */
+// Roundcube autoloads only its own classes; the plugin's helpers are plain PHP files.
+foreach (['rc_connector_sealer', 'rc_connector_signature', 'rc_connector_internal_client', 'rc_connector_mailhost', 'rc_connector_scopes'] as $rc_connector_lib) {
+    require_once __DIR__ . '/lib/' . $rc_connector_lib . '.php';
+}
+unset($rc_connector_lib);
+
 class missiria_rc_connector extends rcube_plugin
 {
     // 'login' is included on purpose: Roundcube rewrites the task of every anonymous request to
