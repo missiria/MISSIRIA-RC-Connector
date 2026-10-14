@@ -135,17 +135,25 @@ as_app_node "cd '$APP_DIR' && npm ci --no-audit --no-fund && npm run build && np
 # --- 4. Keys and environment ------------------------------------------------
 if [[ ! -f "$KEYS_DIR/server.sk" ]]; then
   log "Generating sealing key pair"
-  # /etc/missiria-rc-connector is root-owned; generate as root, then hand the private key to rcmcp (0600).
-  run env NODE_OPTIONS=--no-warnings=ExperimentalWarning "$NODE_BIN" "$APP_DIR/dist/cli.js" keygen --out "$KEYS_DIR"
-  run chown "$APP_USER":"$APP_USER" "$KEYS_DIR/server.sk"
-  run chmod 600 "$KEYS_DIR/server.sk"
-  run chown root:"$APP_USER" "$KEYS_DIR/server.pk"
-  run chmod 640 "$KEYS_DIR/server.pk"
+  # Root never executes code from the rcmcp-writable app dir: keygen runs as rcmcp into a private temp
+  # dir, then root moves the two files into the root-owned KEYS_DIR with final owner/mode.
+  if [[ $DRY -eq 0 ]]; then
+    keytmp="$(mktemp -d "$DATA_DIR/.keygen.XXXXXX")"
+    chown "$APP_USER":"$APP_USER" "$keytmp"; chmod 700 "$keytmp"
+    sudo -u "$APP_USER" env NODE_OPTIONS=--no-warnings=ExperimentalWarning "$NODE_BIN" "$APP_DIR/dist/cli.js" keygen --out "$keytmp" >/dev/null
+    [[ -f "$keytmp/server.sk" && -f "$keytmp/server.pk" ]] || die "keygen did not produce server.sk/server.pk"
+    install -o "$APP_USER" -g "$APP_USER" -m 600 "$keytmp/server.sk" "$KEYS_DIR/server.sk"
+    install -o root -g "$APP_USER" -m 640 "$keytmp/server.pk" "$KEYS_DIR/server.pk"
+    rm -rf "$keytmp"
+  else
+    printf '   [dry-run] keygen as %s into a temp dir, then install into %s\n' "$APP_USER" "$KEYS_DIR"
+  fi
 else
   log "Key pair already present, keeping it"
 fi
 PUBKEY="(dry-run)"
-[[ $DRY -eq 1 ]] || PUBKEY="$(NODE_OPTIONS=--no-warnings=ExperimentalWarning "$NODE_BIN" "$APP_DIR/dist/cli.js" pubkey --keys "$KEYS_DIR")"
+# server.pk is plain text ("base64:..."); read it directly instead of executing app code as root.
+[[ $DRY -eq 1 ]] || PUBKEY="$(tr -d '[:space:]' < "$KEYS_DIR/server.pk")"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   log "Writing $ENV_FILE"
