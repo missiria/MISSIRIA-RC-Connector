@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <radialGradient id="bg" cx="20%" cy="0%" r="90%"><stop offset="0" stop-color="#1b2a5a"/><stop offset="1" stop-color="#0b1020"/></radialGradient>
+    <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#8fb4ff"/><stop offset="1" stop-color="#43e38a"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="rgba(255,255,255,.05)"/></pattern>
+  </defs>
+  <rect width="1200" height="260" rx="20" fill="url(#bg)"/>
+  <rect width="1200" height="260" rx="20" fill="url(#grid)"/>
+  <circle cx="64" cy="62" r="5" fill="#43e38a"><animate attributeName="opacity" values="1;.3;1" dur="2s" repeatCount="indefinite"/></circle>
+  <text x="80" y="67" fill="#8fb4ff" font-size="13" font-weight="600" letter-spacing="2">OPEN SOURCE · MIT · MODEL CONTEXT PROTOCOL</text>
+  <text x="60" y="128" fill="#e8ecf4" font-size="46" font-weight="800" letter-spacing="-1">MISSIRIA RC Connector</text>
+  <text x="60" y="166" fill="#b6c0d6" font-size="20">Your Roundcube mail inside ChatGPT, Claude and every MCP client — on your own server.</text>
+  <g font-size="13" fill="#dfe6f5">
+    <rect x="60" y="192" width="132" height="30" rx="15" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/><text x="76" y="212">OAuth 2.1 + PKCE</text>
+    <rect x="202" y="192" width="150" height="30" rx="15" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/><text x="218" y="212">Sealed credentials</text>
+    <rect x="362" y="192" width="230" height="30" rx="15" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/><text x="378" y="212">Several mailboxes, one connection</text>
+    <rect x="602" y="192" width="120" height="30" rx="15" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.14)"/><text x="618" y="212">Audit + revoke</text>
+  </g>
+  <g transform="translate(900,46)">
+    <rect width="250" height="168" rx="12" fill="#0f1526" stroke="rgba(255,255,255,.12)"/>
+    <rect width="250" height="28" rx="12" fill="#141c33"/><circle cx="16" cy="14" r="5" fill="#ff5f57"/><circle cx="32" cy="14" r="5" fill="#febc2e"/><circle cx="48" cy="14" r="5" fill="#28c840"/>
+    <g font-family="Menlo,Consolas,monospace" font-size="11.5" fill="#cfd6e6">
+      <text x="14" y="52"><tspan fill="#7f89a3">$</tspan> bash install.sh</text>
+      <text x="14" y="72"><tspan fill="#43e38a">✔</tspan> service active :8787</text>
+      <text x="14" y="92"><tspan fill="#43e38a">✔</tspan> https://mcp.example.com</text>
+      <text x="14" y="112"><tspan fill="#43e38a">✔</tspan> Roundcube plugin on</text>
+      <text x="14" y="140" fill="#ffd166">Connect → /mcp · OAuth</text>
+    </g>
+  </g>
+</svg>

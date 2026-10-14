@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+body{width:1200px;height:800px;background:linear-gradient(160deg,#eef2f9,#dfe6f3);display:flex;align-items:center;justify-content:center;color:#1b2233}
+.app{width:1060px;height:700px;background:#fff;border-radius:18px;box-shadow:0 30px 80px rgba(20,30,60,.25);display:grid;grid-template-columns:260px 1fr;overflow:hidden}
+.side{background:#f6f8fc;border-right:1px solid #e6eaf2;padding:22px 18px}
+.side h3{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:#7a8499;margin:18px 0 10px}
+.side .item{padding:9px 12px;border-radius:9px;font-size:14px;color:#3a4458;display:flex;gap:10px;align-items:center}
+.side .item.on{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.08);color:#1b2233;font-weight:600}
+.badge{margin-left:auto;font-size:11px;background:#e8f7ee;color:#1d6b32;padding:2px 8px;border-radius:999px}
+.mb{display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 12px;color:#3a4458}
+.mb i{width:8px;height:8px;border-radius:50%;background:#43e38a;display:inline-block}
+.main{display:flex;flex-direction:column}
+.hdr{height:58px;border-bottom:1px solid #eef1f6;display:flex;align-items:center;padding:0 26px;font-weight:600;gap:10px}
+.hdr .conn{font-size:12px;font-weight:500;color:#1d6b32;background:#e8f7ee;padding:3px 10px;border-radius:999px}
+.msgs{flex:1;padding:26px 30px;display:flex;flex-direction:column;gap:18px;overflow:hidden}
+.u{align-self:flex-end;background:#1b2233;color:#fff;padding:12px 16px;border-radius:16px 16px 4px 16px;max-width:620px;font-size:15px;line-height:1.45}
+.a{align-self:flex-start;max-width:720px;font-size:15px;line-height:1.5}
+.tools{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.tool{display:inline-flex;align-items:center;gap:10px;font-size:13px;color:#3a4458;background:#f3f5fa;border:1px solid #e6eaf2;padding:7px 12px;border-radius:9px;width:max-content}
+.tool .ok{color:#1d6b32;font-weight:700}
+.tool code{font-family:"SF Mono",Menlo,monospace;font-size:12.5px;color:#1b2233}
+.card{border:1px solid #e6eaf2;border-radius:12px;padding:12px 14px;margin:8px 0;display:grid;grid-template-columns:1fr auto;gap:4px 12px}
+.card b{font-size:14px}.card small{color:#7a8499;font-size:12.5px}.card .tag{font-size:11px;padding:2px 8px;border-radius:999px;background:#fff3e0;color:#9a5b00;align-self:start}
+.a p{margin:6px 0}
+.inp{margin:0 30px 22px;border:1px solid #e6eaf2;border-radius:14px;padding:14px 16px;font-size:14px;color:#9aa3b5;display:flex;justify-content:space-between}
+</style></head><body><div class="app">
+<div class="side"><div style="font-weight:700;font-size:16px">AI assistant</div>
+<h3>Connectors</h3><div class="item on">✉️ Company mail <span class="badge">connected</span></div><div class="item">📅 Calendar</div><div class="item">📁 Drive</div>
+<h3>Mailboxes in this connection</h3>
+<div class="mb"><i></i>eksneks <span style="color:#9aa3b5">· main</span></div><div class="mb"><i></i>yazzicars</div><div class="mb"><i></i>rifcars</div><div class="mb"><i></i>puntomira</div><div class="mb"><i></i>+21 more</div>
+</div>
+<div class="main"><div class="hdr">New chat <span class="conn">Company mail · read + send</span></div>
+<div class="msgs">
+<div class="u">Which rental requests in <b>yazzicars</b> are still unanswered this week?</div>
+<div class="a">
+<div class="tools">
+<div class="tool"><span class="ok">✔</span><code>list_accounts</code><span>25 mailboxes · alias <b>yazzicars</b> matched</span></div>
+<div class="tool"><span class="ok">✔</span><code>search_messages</code><span>account=yazzicars · INBOX · since 2026-10-08 · 14 results</span></div>
+<div class="tool"><span class="ok">✔</span><code>get_thread</code><span>×14 · checking for replies in Sent</span></div>
+</div>
+<p>Three rental requests in <b>contact@yazzicars.com</b> have no reply yet:</p>
+<div class="card"><b>SUV for 10 days from Tangier airport</b><span class="tag">2 days</span><small>Wed · asks about child seat and airport delivery</small></div>
+<div class="card"><b>Weekend rental, automatic, Tétouan</b><span class="tag">1 day</span><small>Thu · wants a price for Fri–Sun</small></div>
+<div class="card"><b>Long-term rental quote (3 months)</b><span class="tag">today</span><small>Fri · company request, needs an invoice</small></div>
+<p>Want me to draft replies in French for all three? I will save them as drafts for you to review before anything is sent.</p>
+</div>
+</div>
+<div class="inp"><span>Message the assistant…</span><span>⌘ ↵</span></div>
+</div></div></body></html>

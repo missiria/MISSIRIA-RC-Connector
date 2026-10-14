@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/banner.svg" alt="MISSIRIA RC Connector — your Roundcube mail inside ChatGPT, Claude and every MCP client" width="100%"></p>
+
 # MISSIRIA RC Connector
 
 **Open-source MCP connector for Roundcube.** Lets ChatGPT, Claude, Gemini,
@@ -8,6 +10,14 @@ Gmail and Outlook.
 
 > Status: **in development** (phase plan in `docs/ROADMAP.md`). Not yet
 > released. Follow the repository to be notified of v1.0.0.
+
+## See it
+
+| One install on your server | One connection, all your mailboxes |
+|---|---|
+| ![install.sh run on a VPS](docs/assets/install-terminal.png) | ![An assistant searching the yazzicars mailbox through the connector](docs/assets/chat-example.png) |
+
+![How a request flows: AI platform → mcp-server → Roundcube plugin / Dovecot](docs/assets/architecture.svg)
 
 ## What you get
 

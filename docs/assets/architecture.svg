@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="520" viewBox="0 0 1100 520" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5b6b8c"/></marker>
+    <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#8fb4ff"/><stop offset="1" stop-color="#43e38a"/></linearGradient>
+  </defs>
+  <rect width="1100" height="520" rx="18" fill="#0b1020"/>
+  <text x="40" y="52" fill="#e8ecf4" font-size="22" font-weight="700">MISSIRIA RC Connector — how a request flows</text>
+  <text x="40" y="78" fill="#8a94ab" font-size="14">Everything after the AI platform runs on your own server. Passwords are sealed for the connector's public key; the web host cannot decrypt them.</text>
+
+  <!-- AI platforms -->
+  <rect x="40" y="130" width="250" height="250" rx="14" fill="#141c33" stroke="#2a3657"/>
+  <text x="60" y="162" fill="#e8ecf4" font-size="16" font-weight="700">AI platform</text>
+  <text x="60" y="186" fill="#8a94ab" font-size="13">any MCP client</text>
+  <g fill="#dfe6f5" font-size="13">
+    <rect x="60" y="205" width="210" height="28" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="74" y="224">ChatGPT · Claude · Gemini</text>
+    <rect x="60" y="241" width="210" height="28" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="74" y="260">Cursor · VS Code · Codex CLI</text>
+    <rect x="60" y="277" width="210" height="28" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="74" y="296">Claude Code · n8n · stdio proxy</text>
+  </g>
+  <text x="60" y="345" fill="#8fb4ff" font-size="12">OAuth 2.1 (PKCE, DCR) or rcc_ token</text>
+  <text x="60" y="363" fill="#8fb4ff" font-size="12">MCP Streamable HTTP, stateless</text>
+
+  <!-- server -->
+  <rect x="400" y="110" width="300" height="290" rx="14" fill="#141c33" stroke="url(#g)" stroke-width="1.5"/>
+  <text x="420" y="142" fill="#e8ecf4" font-size="16" font-weight="700">mcp-server</text>
+  <text x="420" y="164" fill="#8a94ab" font-size="13">Node 22 · TypeScript · systemd · 127.0.0.1</text>
+  <g fill="#dfe6f5" font-size="13">
+    <rect x="420" y="182" width="260" height="30" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="434" y="202">OAuth 2.1 authorization server</text>
+    <rect x="420" y="220" width="260" height="30" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="434" y="240">16 MCP tools · scopes · audit</text>
+    <rect x="420" y="258" width="260" height="30" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="434" y="278">Grants → accounts (one per mailbox)</text>
+    <rect x="420" y="296" width="260" height="30" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="434" y="316">Sealed-box credentials · SQLite</text>
+    <rect x="420" y="334" width="260" height="30" rx="8" fill="#0f1526" stroke="#2a3657"/><text x="434" y="354">IMAP/SMTP session pool</text>
+  </g>
+
+  <!-- roundcube -->
+  <rect x="810" y="110" width="250" height="150" rx="14" fill="#141c33" stroke="#2a3657"/>
+  <text x="830" y="142" fill="#e8ecf4" font-size="16" font-weight="700">Roundcube + plugin</text>
+  <text x="830" y="164" fill="#8a94ab" font-size="13">PHP 7.4+ · stores nothing</text>
+  <g fill="#dfe6f5" font-size="13">
+    <text x="830" y="192">• consent screen, scopes</text>
+    <text x="830" y="212">• link mailboxes with one-time codes</text>
+    <text x="830" y="232">• revoke, audit, CLI tokens</text>
+  </g>
+
+  <!-- dovecot -->
+  <rect x="810" y="300" width="250" height="100" rx="14" fill="#141c33" stroke="#2a3657"/>
+  <text x="830" y="332" fill="#e8ecf4" font-size="16" font-weight="700">Dovecot / Postfix</text>
+  <text x="830" y="356" fill="#8a94ab" font-size="13">IMAP 143/993 · SMTP 587/465</text>
+  <text x="830" y="378" fill="#8a94ab" font-size="13">one login per linked mailbox</text>
+
+  <!-- arrows -->
+  <line x1="290" y1="200" x2="398" y2="200" stroke="#5b6b8c" stroke-width="2" marker-end="url(#a)"/>
+  <text x="300" y="190" fill="#8a94ab" font-size="12">HTTPS · nginx</text>
+  <line x1="700" y1="180" x2="808" y2="180" stroke="#5b6b8c" stroke-width="2" marker-end="url(#a)"/>
+  <text x="708" y="170" fill="#8a94ab" font-size="12">consent redirect</text>
+  <line x1="808" y1="220" x2="700" y2="220" stroke="#5b6b8c" stroke-width="2" marker-end="url(#a)"/>
+  <text x="708" y="240" fill="#8a94ab" font-size="12">loopback API · sealed creds</text>
+  <line x1="700" y1="350" x2="808" y2="350" stroke="#5b6b8c" stroke-width="2" marker-end="url(#a)"/>
+  <text x="708" y="340" fill="#8a94ab" font-size="12">IMAP / SMTP</text>
+
+  <!-- footer -->
+  <text x="40" y="440" fill="#43e38a" font-size="13" font-weight="700">Revoke in webmail → the next MCP call gets 401.</text>
+  <text x="40" y="462" fill="#8a94ab" font-size="13">Scopes: mail:read · mail:write · mail:send · contacts:read. Permanent delete is never exposed.</text>
+  <text x="40" y="490" fill="#5b6b8c" font-size="12">github.com/missiria/MISSIRIA-RC-Connector · MIT</text>
+</svg>

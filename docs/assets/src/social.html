@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+body{width:1280px;height:640px;overflow:hidden;background:radial-gradient(1200px 600px at 20% 10%,#1b2a5a 0%,#0b1020 55%),#0b1020;position:relative}
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:40px 40px;mask-image:radial-gradient(900px 500px at 30% 30%,#000 30%,transparent 100%)}
+.wrap{position:relative;padding:56px 80px 0;display:grid;grid-template-columns:1fr 480px;gap:40px;height:100%}
+.eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#8fb4ff;font-weight:600}
+.eyebrow .dot{width:8px;height:8px;border-radius:50%;background:#43e38a;box-shadow:0 0 12px #43e38a}
+h1{font-size:54px;line-height:1.05;letter-spacing:-.02em;margin:18px 0 14px;font-weight:800}
+h1 span{background:linear-gradient(90deg,#8fb4ff,#43e38a);-webkit-background-clip:text;background-clip:text;color:transparent}
+p.lead{font-size:19px;line-height:1.4;color:#b6c0d6;max-width:600px}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;max-width:620px}
+.pill{padding:6px 12px;border:1px solid rgba(255,255,255,.14);border-radius:999px;font-size:15px;color:#dfe6f5;background:rgba(255,255,255,.04)}
+.foot{position:absolute;left:80px;bottom:34px;display:flex;gap:22px;font-size:15px;color:#8a94ab}
+.foot b{color:#e8ecf4;font-weight:600}
+.term{align-self:start;margin-top:20px;background:#0f1526;border:1px solid rgba(255,255,255,.1);border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.55);overflow:hidden}
+.bar{height:38px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#141c33;border-bottom:1px solid rgba(255,255,255,.06)}
+.bar i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.bar .t{margin-left:auto;font-size:12px;color:#7f89a3}
+pre{padding:18px 20px;font-size:14.5px;line-height:1.6;color:#cfd6e6;white-space:pre-wrap}
+.c{color:#43e38a}.k{color:#8fb4ff}.d{color:#7f89a3}.y{color:#ffd166}
+</style></head><body><div class="grid"></div><div class="wrap">
+<div>
+<div class="eyebrow"><span class="dot"></span>Open source · MIT · MCP</div>
+<h1>Your Roundcube mail,<br>inside <span>every AI assistant</span>.</h1>
+<p class="lead">One connector on your own server. ChatGPT, Claude, Gemini, Cursor and any MCP client read, search and reply to mail with per-mailbox consent and one-click revoke.</p>
+<div class="pills"><span class="pill">OAuth 2.1 + PKCE</span><span class="pill">Streamable HTTP</span><span class="pill">Sealed credentials</span><span class="pill">Several mailboxes, one connection</span><span class="pill">Audit log</span></div>
+</div>
+<div class="term"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="t mono">root@mail — bash</span></div>
+<pre class="mono"><span class="d">$</span> bash install.sh --mcp-host mcp.example.com \
+    --webmail-host webmail.example.com
+<span class="c">✔</span> Node 22 runtime        <span class="d">/opt/missiria-rc-connector/node</span>
+<span class="c">✔</span> key pair generated     <span class="d">sodium sealed-box</span>
+<span class="c">✔</span> systemd service        <span class="k">active</span> 127.0.0.1:8787
+<span class="c">✔</span> nginx + Let's Encrypt  <span class="k">https://mcp.example.com</span>
+<span class="c">✔</span> Roundcube plugin       <span class="d">Settings → AI Connectors</span>
+
+<span class="y">Connect:</span> add https://mcp.example.com/mcp
+         as a custom connector. Done.</pre></div>
+</div>
+<div class="foot"><span><b>MISSIRIA RC Connector</b></span><span>github.com/missiria/MISSIRIA-RC-Connector</span><span>Roundcube 1.5+ · Node 22+</span></div>
+</body></html>

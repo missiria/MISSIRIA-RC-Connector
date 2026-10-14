@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css"><style>
+body{width:1200px;height:760px;background:linear-gradient(160deg,#141a2e,#0b1020);display:flex;align-items:center;justify-content:center}
+.term{width:1040px;background:#0f1526;border:1px solid rgba(255,255,255,.1);border-radius:14px;box-shadow:0 40px 100px rgba(0,0,0,.6);overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#141c33;border-bottom:1px solid rgba(255,255,255,.06)}
+.bar i{width:12px;height:12px;border-radius:50%;display:inline-block}
+.bar .t{margin-left:auto;font-size:12.5px;color:#7f89a3}
+pre{padding:22px 26px;font-size:15px;line-height:1.62;color:#cfd6e6;white-space:pre-wrap}
+.c{color:#43e38a}.k{color:#8fb4ff}.d{color:#7f89a3}.y{color:#ffd166}.p{color:#f28fad}
+</style></head><body><div class="term"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="t mono">root@mail.example.com — bash — 104×34</span></div>
+<pre class="mono"><span class="d">#</span> <span class="k">curl</span> -fsSL https://raw.githubusercontent.com/missiria/MISSIRIA-RC-Connector/main/deploy/install.sh -o rc-install.sh
+<span class="d">#</span> <span class="k">bash</span> rc-install.sh --mcp-host mcp.example.com --webmail-host webmail.example.com \
+      --rc-dir /usr/share/roundcube --email admin@example.com
+
+<span class="y">MISSIRIA RC Connector installer</span>
+<span class="c">✔</span> Checked prerequisites         git curl rsync xz nginx certbot php8.3-fpm (sodium)
+<span class="c">✔</span> Created service user          rcmcp
+<span class="c">✔</span> Installed private Node        v22.20.0 → /opt/missiria-rc-connector/node
+<span class="c">✔</span> Cloned sources                /opt/missiria-rc-connector/src (root-owned)
+<span class="c">✔</span> Built server                  npm ci · tsc · 0 vulnerabilities
+<span class="c">✔</span> Generated key pair            /etc/missiria-rc-connector/keys  (server.sk 0600 rcmcp)
+<span class="c">✔</span> Migrated store                SQLite · schema v3
+<span class="c">✔</span> Started service               missiria-rc-connector.service  <span class="k">active</span>  127.0.0.1:8787
+<span class="c">✔</span> Health                        GET /healthz → {"ok":true,"keysLoaded":true}
+<span class="c">✔</span> nginx vhost                   mcp.example.com (SSE-safe, proxy_buffering off)
+<span class="c">✔</span> TLS                           Let's Encrypt · auto-renew
+<span class="c">✔</span> Roundcube plugin              /usr/share/roundcube/plugins/missiria_rc_connector
+<span class="c">✔</span> Enabled plugin                config.inc.php (backup kept)
+
+<span class="y">Discovery</span>
+  <span class="k">https://mcp.example.com/.well-known/oauth-authorization-server</span>  200
+  <span class="k">https://mcp.example.com/.well-known/oauth-protected-resource</span>   200
+  <span class="k">https://mcp.example.com/mcp</span>  401 + WWW-Authenticate: Bearer resource_metadata=…  <span class="d">(expected)</span>
+
+<span class="c">Done in 1m 48s.</span>
+<span class="p">Next:</span> in ChatGPT or Claude add a custom connector → <span class="k">https://mcp.example.com/mcp</span> → OAuth.
+      Users approve on their own Roundcube consent screen. Revoke any time in Settings → AI Connectors.</pre></div></body></html>
