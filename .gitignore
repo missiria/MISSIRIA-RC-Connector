@@ -23,3 +23,4 @@ composer.lock
 .idea/
 .vscode/
 *.swp
+.phpunit.result.cache

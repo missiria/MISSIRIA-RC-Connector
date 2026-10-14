@@ -262,7 +262,7 @@ if [[ $PLUGIN -eq 1 ]]; then
   done
   [[ -L "$PLUGIN_DST" || -L "$PLUGIN_DST/config.inc.php" ]] && die "$PLUGIN_DST (or its config.inc.php) is a symlink; refusing to install over it"
   run install -d -o root -g root -m 755 "$PLUGIN_DST"
-  run rsync -a --delete --no-links --exclude config.inc.php --exclude tests --exclude vendor --exclude phpunit.xml.dist "$PLUGIN_SRC/" "$PLUGIN_DST/"
+  run rsync -a --delete --no-links --exclude config.inc.php --exclude tests --exclude vendor --exclude phpunit.xml.dist --exclude .phpunit.result.cache "$PLUGIN_SRC/" "$PLUGIN_DST/"
   # Code is root-owned and world-readable (no secrets); config.inc.php is handled separately below.
   run chown -R root:root "$PLUGIN_DST"
   run find "$PLUGIN_DST" ! -name config.inc.php -type d -exec chmod 755 {} +
