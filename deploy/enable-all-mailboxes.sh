@@ -145,12 +145,19 @@ doveadm user '*' 2>/dev/null | grep -v '^\$' | sort > "$DIR_FILE.tmp" || exit 0
 chown root:$APP_USER "$DIR_FILE.tmp" && mv -f "$DIR_FILE.tmp" "$DIR_FILE"
 : > "$IDENT_FILE.tmp"
 if [ -r /etc/postfix/virtual ]; then
-  while read -r login; do
-    home=\$(doveadm user -f home "\$login" 2>/dev/null); sysuser=\${home##*/}
-    [ -n "\$sysuser" ] || continue
-    aliases=\$(awk -v u="\$sysuser" -v l="\$login" '\$0 !~ /^[[:space:]]*#/ && NF >= 2 && index(\$1, "@") > 0 && (\$2 == u || \$2 == l) { print tolower(\$1) }' /etc/postfix/virtual | sort -u | tr '\\n' ' ')
+  # login -> system user (basename of the Dovecot home). A system user shared by several logins is
+  # ambiguous and gets no aliases at all: an alias must map to exactly one mailbox.
+  map=\$(while read -r login; do h=\$(doveadm user -f home "\$login" 2>/dev/null); printf '%s %s\\n' "\$login" "\${h##*/}"; done < "$DIR_FILE")
+  dups=\$(printf '%s\\n' "\$map" | awk 'NF == 2 { n[\$2]++ } END { for (u in n) if (n[u] > 1) print u }')
+  printf '%s\\n' "\$map" | while read -r login sysuser; do
+    [ -n "\$login" ] || continue
+    if [ -n "\$sysuser" ] && ! printf '%s\\n' "\$dups" | grep -qx "\$sysuser"; then
+      aliases=\$(awk -v u="\$sysuser" -v l="\$login" '\$0 !~ /^[[:space:]]*#/ && NF >= 2 && index(\$1, "@") > 0 && (\$2 == u || \$2 == l) { print tolower(\$1) }' /etc/postfix/virtual | sort -u | tr '\\n' ' ')
+    else
+      aliases=""
+    fi
     printf '%s %s\\n' "\$login" "\$aliases" >> "$IDENT_FILE.tmp"
-  done < "$DIR_FILE"
+  done
 fi
 chown root:$APP_USER "$IDENT_FILE.tmp" && mv -f "$IDENT_FILE.tmp" "$IDENT_FILE"
 EOT
