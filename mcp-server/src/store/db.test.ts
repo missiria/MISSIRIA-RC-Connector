@@ -13,8 +13,8 @@ function grantFixture(id: string, username = 'alice@example.test') {
 describe('Store', () => {
   it('migrates idempotently', () => {
     const s = openStore(':memory:');
-    expect(s.migrate()).toBe(2);
-    expect(s.migrate()).toBe(2);
+    expect(s.migrate()).toBe(3);
+    expect(s.migrate()).toBe(3);
     s.close();
   });
 
@@ -126,9 +126,9 @@ describe('Store', () => {
     s.db.prepare('INSERT INTO schema_version(version) VALUES (1)').run();
     s.db.prepare(`INSERT INTO grants(id, kind, username, email, imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls, sealed, scopes, client_id, label, created_at)
                   VALUES ('g1','oauth','contact@eksneks.com','contact@eksneks.com','127.0.0.1',143,'none','mail.eksneks.com',587,'starttls',x'00','mail:read',NULL,NULL,1)`).run();
-    expect(s.migrate()).toBe(2);
+    expect(s.migrate()).toBe(3);
     expect(s.getPrimaryAccount('g1')).toMatchObject({ alias: 'eksneks', username: 'contact@eksneks.com', imap_tls: 'none', is_primary: true });
-    expect(s.migrate()).toBe(2);
+    expect(s.migrate()).toBe(3);
     expect(s.listAccounts('g1')).toHaveLength(1);
   });
 
@@ -142,5 +142,17 @@ describe('Store', () => {
     expect(s.useLinkCode('h1')).toBe(false);
     expect(s.useLinkCode('h2')).toBe(false);
     expect(s.countActiveLinkCodes('g1')).toBe(0);
+  });
+
+  it('ADR-002: linked mailbox owners see audit rows that touched their mailbox', () => {
+    const s = openStore(':memory:');
+    s.insertGrant(grantFixture('g1', 'owner@example.test'));
+    s.insertAudit({ grant_id: 'g1', username: 'owner@example.test', tool: 'list_folders', folder: null, outcome: 'ok', ms: 1, ip: null, account: 'yazzicars', account_user: 'contact@yazzicars.test' });
+    s.insertAudit({ grant_id: 'g1', username: 'owner@example.test', tool: 'get_quota', folder: null, outcome: 'ok', ms: 1, ip: null, account: 'example', account_user: 'owner@example.test' });
+    expect(s.listAuditForUser('owner@example.test')).toHaveLength(2);
+    const linked = s.listAuditForUser('contact@yazzicars.test');
+    expect(linked).toHaveLength(1);
+    expect(linked[0]).toMatchObject({ tool: 'list_folders', account: 'yazzicars' });
+    expect(s.listAuditForUser('stranger@example.test')).toHaveLength(0);
   });
 });

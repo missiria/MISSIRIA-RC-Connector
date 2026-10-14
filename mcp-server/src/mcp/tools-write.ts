@@ -61,7 +61,7 @@ async function submit(ctx: ToolContext, tool: string, msg: OutgoingMessage, alia
   const { raw, messageId } = await buildRaw(msg);
   // Reserve the slot atomically (count + insert in one transaction) so parallel calls cannot exceed the limit.
   if (!deps.store.reserveSend(principal.grantId, deps.cfg.SEND_RATE_PER_HOUR)) {
-    deps.store.insertAudit({ grant_id: principal.grantId, username: principal.username, tool, folder: null, outcome: 'rate_limited', ms: 0, ip: ctx.ip, account: account.alias });
+    deps.store.insertAudit({ grant_id: principal.grantId, username: principal.username, tool, folder: null, outcome: 'rate_limited', ms: 0, ip: ctx.ip, account: account.alias, account_user: account.username });
     throw new ToolError('rate_limited', `send limit of ${deps.cfg.SEND_RATE_PER_HOUR} messages per hour reached for this connection`);
   }
   try {
@@ -96,7 +96,7 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         ctx.requireScope('mail:send', 'send_message');
         const account = ctx.account(a.account);
         const res = await submit(ctx, 'send_message', { from: senderFor(ctx, account), to: toAddr(a.to), cc: toAddr(a.cc), bcc: toAddr(a.bcc), subject: a.subject, text: a.text, html: a.html, attachments: decodeAttachments(a.attachments, max) }, a.account);
-        ctx.deps.store.insertAudit({ grant_id: ctx.principal.grantId, username: ctx.principal.username, tool: 'send_message', folder: null, outcome: 'ok', ms: 0, ip: ctx.ip, account: account.alias });
+        ctx.deps.store.insertAudit({ grant_id: ctx.principal.grantId, username: ctx.principal.username, tool: 'send_message', folder: null, outcome: 'ok', ms: 0, ip: ctx.ip, account: account.alias, account_user: account.username });
         return ctx.ok({ ...res, summary: `Sent "${a.subject}" to ${res.recipients} recipient(s).` }, `Sent "${a.subject}" to ${res.recipients} recipient(s).`);
       } catch (e) { return toolError(e); }
     },
@@ -214,16 +214,18 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         const started = Date.now();
         let outcome = 'ok';
         let alias: string | null = a.account ?? null;
+        let accountUser: string | null = null;
         try {
           const account = ctx.account(a.account);
           alias = account.alias;
+          accountUser = account.username;
           const contacts = await searchContacts(ctx.deps, account.username, account.imap_host, a.q, a.limit, ctx.deps.fetch ?? fetch);
           return ctx.ok({ account: account.alias, contacts });
         } catch (e) {
           outcome = e instanceof ToolError ? e.code : 'error';
           throw e;
         } finally {
-          ctx.deps.store.insertAudit({ grant_id: ctx.principal.grantId, username: ctx.principal.username, tool: 'search_contacts', folder: null, outcome, ms: Date.now() - started, ip: ctx.ip, account: alias });
+          ctx.deps.store.insertAudit({ grant_id: ctx.principal.grantId, username: ctx.principal.username, tool: 'search_contacts', folder: null, outcome, ms: Date.now() - started, ip: ctx.ip, account: alias, account_user: accountUser });
         }
       } catch (e) { return toolError(e); }
     },

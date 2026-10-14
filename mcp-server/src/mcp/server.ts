@@ -53,9 +53,11 @@ export function buildToolContext(deps: Deps, principal: Principal, ip: string | 
       let outcome = 'ok';
       let mail: MailClient | undefined;
       let account: string | null = alias ?? null;
+      let accountUser: string | null = null;
       try {
         const resolved = deps.pool.resolve(principal.grantId, alias);
         account = resolved.alias;
+        accountUser = resolved.username;
         mail = await deps.pool.acquire(principal.grantId, alias);
         return await fn(mail);
       } catch (e) {
@@ -64,7 +66,7 @@ export function buildToolContext(deps: Deps, principal: Principal, ip: string | 
         throw e;
       } finally {
         if (mail) deps.pool.release(principal.grantId, alias);
-        deps.store.insertAudit({ grant_id: principal.grantId, username: principal.username, tool, folder, outcome, ms: Date.now() - started, ip, account });
+        deps.store.insertAudit({ grant_id: principal.grantId, username: principal.username, tool, folder, outcome, ms: Date.now() - started, ip, account, account_user: accountUser });
       }
     },
     ok(payload, summary) {

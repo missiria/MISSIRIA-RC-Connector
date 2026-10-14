@@ -243,6 +243,10 @@ class missiria_rc_connector extends rcube_plugin
                     html::tag('li', null, $this->gettext('link_step_1')) . html::tag('li', null, $this->gettext('link_step_2')) . html::tag('li', null, $this->gettext('link_step_3'))));
         }
 
+        if (!empty($_SESSION['rc_connector_join']) && ($_SESSION['rc_connector_join']['user'] ?? '') === $user) {
+            $html .= $this->join_confirm_html($_SESSION['rc_connector_join']);
+        }
+
         // active connections (each with its linked mailboxes)
         $grants = $online ? $this->client()->listGrants($user) : [];
         $rows   = '';
@@ -361,9 +365,40 @@ class missiria_rc_connector extends rcube_plugin
         $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
     }
 
-    /** Step 2 of linking: this mailbox joins the connection the code belongs to. */
+    /**
+     * Step 2 of linking, in two POSTs: the first previews the connection the code belongs to
+     * (client, kind, scopes, main mailbox) and parks code + alias in the session; the second
+     * ("confirm") redeems from the session copy, so what the user approved is what gets linked.
+     */
     public function join_action()
     {
+        $user = $this->rc->get_user_name();
+        if ($this->in('cancel', rcube_utils::INPUT_POST) !== '') {
+            $this->rc->session->remove('rc_connector_join');
+            $this->rc->output->show_message($this->gettext('join_cancelled'), 'notice');
+            return $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
+        }
+
+        if ($this->in('confirm', rcube_utils::INPUT_POST) !== '') {
+            $pending = $_SESSION['rc_connector_join'] ?? null;
+            $this->rc->session->remove('rc_connector_join');
+            if (!is_array($pending) || ($pending['user'] ?? '') !== $user) {
+                $this->rc->output->show_message($this->gettext('link_code_invalid'), 'error');
+                return $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
+            }
+            try {
+                $res = $this->client()->redeemLinkCode($this->mailbox_payload() + ['code' => $pending['code'], 'alias' => $pending['alias']]);
+                $this->rc->output->show_message($this->gettext(['name' => 'linked_ok', 'vars' => ['client' => $res['client_name'] ?? '', 'alias' => $res['alias'] ?? $pending['alias']]]), 'confirmation');
+            } catch (rc_connector_link_exception $e) {
+                $this->rc->output->show_message($this->gettext($this->link_error_label($e->getMessage())), 'error');
+            } catch (Throwable $e) {
+                rcube::raise_error(['code' => 500, 'message' => 'rc_connector: ' . $e->getMessage()], true, false);
+                $this->rc->output->show_message($this->gettext('server_unreachable'), 'error');
+            }
+            return $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
+        }
+
+        // first POST: validate, preview, ask for confirmation
         $code  = trim($this->in('code', rcube_utils::INPUT_POST));
         $alias = rc_connector_alias::normalize($this->in('alias', rcube_utils::INPUT_POST));
         if ($code === '' || strlen($code) > 40) {
@@ -372,17 +407,44 @@ class missiria_rc_connector extends rcube_plugin
             $this->rc->output->show_message($this->gettext('alias_invalid'), 'error');
         } else {
             try {
-                $res = $this->client()->redeemLinkCode($this->mailbox_payload() + ['code' => $code, 'alias' => $alias]);
-                $this->rc->output->show_message($this->gettext(['name' => 'linked_ok', 'vars' => ['client' => $res['client_name'] ?? '', 'alias' => $res['alias'] ?? $alias]]), 'confirmation');
-            } catch (rc_connector_link_exception $e) {
-                $map = ['code_invalid' => 'link_code_invalid', 'code_used' => 'link_code_used', 'code_expired' => 'link_code_expired', 'already_linked' => 'already_linked', 'alias_taken' => 'alias_taken', 'invalid_alias' => 'alias_invalid'];
-                $this->rc->output->show_message($this->gettext($map[$e->getMessage()] ?? 'link_failed'), 'error');
+                $preview = $this->client()->previewLinkCode($code);
+                if (!$preview) {
+                    $this->rc->output->show_message($this->gettext('link_code_invalid'), 'error');
+                } else {
+                    $_SESSION['rc_connector_join'] = ['user' => $user, 'code' => $code, 'alias' => $alias, 'preview' => $preview];
+                }
             } catch (Throwable $e) {
                 rcube::raise_error(['code' => 500, 'message' => 'rc_connector: ' . $e->getMessage()], true, false);
                 $this->rc->output->show_message($this->gettext('server_unreachable'), 'error');
             }
         }
         $this->rc->output->redirect(['_task' => 'settings', '_action' => 'plugin.rc_connector']);
+    }
+
+    private function link_error_label(string $code): string
+    {
+        $map = ['code_invalid' => 'link_code_invalid', 'code_used' => 'link_code_used', 'code_expired' => 'link_code_expired', 'already_linked' => 'already_linked', 'alias_taken' => 'alias_taken', 'invalid_alias' => 'alias_invalid'];
+        return $map[$code] ?? 'link_failed';
+    }
+
+    /** Confirmation box for a pending join: who gets access to this mailbox, with which permissions. */
+    private function join_confirm_html(array $pending): string
+    {
+        $p      = (array) ($pending['preview'] ?? []);
+        $client = rcube::Q($p['client_name'] ?: ($p['kind'] === 'pat' ? 'CLI token' : 'OAuth client'));
+        $list   = '';
+        foreach ((array) ($p['scopes'] ?? []) as $scope) {
+            if (in_array($scope, rc_connector_scopes::ALL, true)) {
+                $list .= html::tag('li', rc_connector_scopes::isWrite($scope) ? 'rc-scope-write' : null, html::span('rc-scope-name', rcube::Q($scope)) . ' ' . html::span('rc-scope-desc', $this->gettext('scope_' . str_replace(':', '_', $scope))));
+            }
+        }
+        $body  = html::tag('h4', null, $this->gettext('join_confirm_title'));
+        $body .= html::p(null, $this->gettext(['name' => 'join_confirm_text', 'vars' => ['user' => rcube::Q($this->rc->get_user_name()), 'client' => $client, 'primary' => rcube::Q($p['primary'] ?? ''), 'alias' => rcube::Q($pending['alias'] ?? '')]]));
+        $body .= html::tag('ul', 'rc-connector-scopelist', $list);
+        $body .= html::p('rc-connector-warning', $this->gettext('join_confirm_warning'));
+        $buttons = html::tag('button', ['type' => 'submit', 'name' => 'confirm', 'value' => '1', 'class' => 'btn btn-primary'], $this->gettext('join_confirm'))
+            . ' ' . html::tag('button', ['type' => 'submit', 'name' => 'cancel', 'value' => '1', 'class' => 'btn btn-secondary'], $this->gettext('cancel'));
+        return html::div('rc-connector-token boxwarning rc-connector-join-confirm', $this->rc->output->form_tag(['method' => 'post', 'action' => $this->rc->url(['_task' => 'settings', '_action' => 'plugin.rc_connector-join'])], $body . html::div('formbuttons', $buttons)));
     }
 
     /** Removes a linked mailbox; the server allows it to the mailbox itself and to the connection owner. */

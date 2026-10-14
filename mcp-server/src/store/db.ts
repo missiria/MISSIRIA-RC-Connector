@@ -112,6 +112,11 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS link_codes_grant ON link_codes(grant_id);
   ALTER TABLE audit ADD COLUMN account TEXT;
   `,
+  // v3: the login name of the mailbox a call ran against, so linked mailbox owners see activity on their mailbox.
+  `
+  ALTER TABLE audit ADD COLUMN account_user TEXT;
+  CREATE INDEX IF NOT EXISTS audit_account_user_created ON audit(account_user, created_at DESC);
+  `,
 ];
 
 /** Data steps that run right after the SQL of the same version (1-based). */
@@ -271,6 +276,8 @@ export interface AuditRow {
   ip: string | null;
   /** Mailbox alias the call ran against (null for calls that are not mailbox-bound). */
   account: string | null;
+  /** Login name of that mailbox; audit is listed to its owner as well as to the grant owner. */
+  account_user: string | null;
   created_at: number;
 }
 
@@ -540,19 +547,20 @@ export class Store {
   }
 
   // ---- audit
-  insertAudit(a: Omit<AuditRow, 'id' | 'created_at' | 'account'> & { account?: string | null }): void {
+  insertAudit(a: Omit<AuditRow, 'id' | 'created_at' | 'account' | 'account_user'> & { account?: string | null; account_user?: string | null }): void {
     this.db
       .prepare(
-        `INSERT INTO audit(grant_id, username, tool, folder, outcome, ms, ip, account, created_at)
-         VALUES (@grant_id, @username, @tool, @folder, @outcome, @ms, @ip, @account, @created_at)`,
+        `INSERT INTO audit(grant_id, username, tool, folder, outcome, ms, ip, account, account_user, created_at)
+         VALUES (@grant_id, @username, @tool, @folder, @outcome, @ms, @ip, @account, @account_user, @created_at)`,
       )
-      .run({ ...a, account: a.account ?? null, created_at: now() });
+      .run({ ...a, account: a.account ?? null, account_user: a.account_user ?? null, created_at: now() });
   }
 
+  /** Activity the user is entitled to see: calls made through their connections, plus calls that touched their mailbox via a link. */
   listAuditForUser(username: string, limit = 100): AuditRow[] {
     return this.db
-      .prepare('SELECT * FROM audit WHERE username = ? ORDER BY created_at DESC, id DESC LIMIT ?')
-      .all(username, Math.min(Math.max(limit, 1), 500)) as unknown as AuditRow[];
+      .prepare('SELECT * FROM audit WHERE username = ? OR account_user = ? ORDER BY created_at DESC, id DESC LIMIT ?')
+      .all(username, username, Math.min(Math.max(limit, 1), 500)) as unknown as AuditRow[];
   }
 
   // ---- send rate limiting

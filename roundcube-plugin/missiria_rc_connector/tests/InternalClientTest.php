@@ -80,4 +80,15 @@ final class InternalClientTest extends TestCase
         $this->assertTrue($c->unlinkAccount('a1', 'u@example.test'));
         $this->assertStringContainsString('/internal/accounts/a1?user=u%40example.test', $this->calls[4]['url']);
     }
+
+    public function testPreviewLinkCodeIsNullWhenUnusable(): void
+    {
+        $c = $this->client([
+            ['status' => 200, 'body' => json_encode(['client_name' => 'Claude', 'kind' => 'oauth', 'scopes' => ['mail:read'], 'primary' => 'contact@eksneks.test'])],
+            ['status' => 410, 'body' => json_encode(['error' => 'code_expired'])],
+        ]);
+        $this->assertSame('Claude', $c->previewLinkCode('LINK-AAAA-BBBB')['client_name']);
+        $this->assertSame('http://127.0.0.1:8787/internal/link-codes/LINK-AAAA-BBBB', $this->calls[0]['url']);
+        $this->assertNull($c->previewLinkCode('LINK-AAAA-BBBB'));
+    }
 }

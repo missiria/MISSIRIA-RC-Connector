@@ -162,7 +162,8 @@ describe('MCP endpoint', () => {
 
     // audit rows carry the alias; one pooled session per account
     const audit = deps.store.listAuditForUser('alice@example.test');
-    expect(audit.find((a) => a.tool === 'list_folders' && a.outcome === 'ok')?.account).toBe('yazzicars');
+    expect(audit.find((a) => a.tool === 'list_folders' && a.outcome === 'ok')).toMatchObject({ account: 'yazzicars', account_user: 'contact@yazzicars.test' });
+    expect(deps.store.listAuditForUser('contact@yazzicars.test').map((a) => a.tool)).toContain('list_folders');
     expect(deps.pool!.size).toBe(2);
   });
 });

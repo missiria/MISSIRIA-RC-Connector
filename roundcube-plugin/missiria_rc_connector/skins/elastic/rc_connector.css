@@ -40,3 +40,6 @@
 .rc-connector .rc-connector-steps { margin: .5rem 0 0 1.25rem; padding: 0; }
 .rc-connector .rc-connector-join { max-width: 480px; }
 .rc-connector .rc-connector-join .form-group { margin-bottom: .75rem; }
+.rc-connector .rc-connector-join-confirm h4 { margin: 0 0 .5rem; font-size: 1rem; }
+.rc-connector .rc-connector-scopelist { margin: .25rem 0 .75rem 1.25rem; padding: 0; }
+.rc-connector .rc-connector-scopelist .rc-scope-write .rc-scope-name { color: #a33; }
