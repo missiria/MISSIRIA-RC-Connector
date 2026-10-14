@@ -82,6 +82,12 @@ export type GrantKind = 'oauth' | 'pat';
 /** implicit = TLS on connect (993/465), starttls = upgrade after connect, none = plaintext (loopback only). */
 export type TlsMode = 'implicit' | 'starttls' | 'none';
 export const TLS_MODES: TlsMode[] = ['implicit', 'starttls', 'none'];
+
+/** Plaintext mail connections are only acceptable to the local host. */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.startsWith('127.');
+}
 export type TokenKind = 'access' | 'refresh' | 'pat';
 export type AuthRequestStatus = 'pending' | 'approved' | 'denied' | 'consumed' | 'expired';
 

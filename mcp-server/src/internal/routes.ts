@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { SCOPES, isScope } from '../config.js';
-import { now, TLS_MODES, type TlsMode } from '../store/db.js';
+import { now, TLS_MODES, isLoopbackHost, type TlsMode } from '../store/db.js';
 import { constantTimeEqual, randomId, randomToken, sha256Hex } from '../crypto/seal.js';
 import { redirectHost } from '../oauth/routes.js';
 
@@ -18,6 +18,13 @@ const mailboxSchema = z.object({
   sealed: z.string().min(64), // base64 of ≥ 48 bytes
   scopes: z.array(z.string()).min(1),
 });
+
+/** Resolves the TLS mode for a mail host, refusing plaintext to anything but loopback. */
+function tlsFor(requested: string | undefined, host: string, fallback: TlsMode): TlsMode | undefined {
+  const mode = (requested as TlsMode | undefined) ?? fallback;
+  if (mode === 'none' && !isLoopbackHost(host)) return undefined;
+  return mode;
+}
 
 function decodeSealed(b64: string): Uint8Array | undefined {
   const buf = Buffer.from(b64, 'base64');
@@ -69,18 +76,23 @@ export function internalRoutes(deps: Deps): Hono {
     if (scopes.length === 0 || !scopes.every((s) => requested.has(s))) return c.json({ error: 'invalid_scopes', detail: 'granted scopes must be a non-empty subset of requested scopes' }, 400);
     const sealed = decodeSealed(b.sealed);
     if (!sealed) return c.json({ error: 'invalid_sealed' }, 400);
+    const imapHost = b.imap_host ?? cfg.IMAP_HOST;
+    const smtpHost = b.smtp_host ?? cfg.SMTP_HOST;
+    const imapTls = tlsFor(b.imap_tls, imapHost, cfg.IMAP_TLS ? 'implicit' : 'none');
+    const smtpTls = tlsFor(b.smtp_tls, smtpHost, cfg.SMTP_STARTTLS ? 'starttls' : 'none');
+    if (!imapTls || !smtpTls) return c.json({ error: 'tls_required', detail: 'plaintext IMAP/SMTP is only allowed to loopback hosts' }, 400);
 
     const grant = store.insertGrant({
       id: randomId(),
       kind: 'oauth',
       username: b.username,
       email: b.email ?? null,
-      imap_host: b.imap_host ?? cfg.IMAP_HOST,
+      imap_host: imapHost,
       imap_port: b.imap_port ?? cfg.IMAP_PORT,
-      imap_tls: (b.imap_tls as TlsMode | undefined) ?? (cfg.IMAP_TLS ? 'implicit' : 'none'),
-      smtp_host: b.smtp_host ?? cfg.SMTP_HOST,
+      imap_tls: imapTls,
+      smtp_host: smtpHost,
       smtp_port: b.smtp_port ?? cfg.SMTP_PORT,
-      smtp_tls: (b.smtp_tls as TlsMode | undefined) ?? (cfg.SMTP_STARTTLS ? 'starttls' : 'none'),
+      smtp_tls: smtpTls,
       sealed,
       scopes,
       client_id: ar.client_id,
@@ -101,17 +113,22 @@ export function internalRoutes(deps: Deps): Hono {
     if (scopes.length === 0) return c.json({ error: 'invalid_scopes' }, 400);
     const sealed = decodeSealed(b.sealed);
     if (!sealed) return c.json({ error: 'invalid_sealed' }, 400);
+    const imapHost = b.imap_host ?? cfg.IMAP_HOST;
+    const smtpHost = b.smtp_host ?? cfg.SMTP_HOST;
+    const imapTls = tlsFor(b.imap_tls, imapHost, cfg.IMAP_TLS ? 'implicit' : 'none');
+    const smtpTls = tlsFor(b.smtp_tls, smtpHost, cfg.SMTP_STARTTLS ? 'starttls' : 'none');
+    if (!imapTls || !smtpTls) return c.json({ error: 'tls_required', detail: 'plaintext IMAP/SMTP is only allowed to loopback hosts' }, 400);
     const grant = store.insertGrant({
       id: randomId(),
       kind: 'pat',
       username: b.username,
       email: b.email ?? null,
-      imap_host: b.imap_host ?? cfg.IMAP_HOST,
+      imap_host: imapHost,
       imap_port: b.imap_port ?? cfg.IMAP_PORT,
-      imap_tls: (b.imap_tls as TlsMode | undefined) ?? (cfg.IMAP_TLS ? 'implicit' : 'none'),
-      smtp_host: b.smtp_host ?? cfg.SMTP_HOST,
+      imap_tls: imapTls,
+      smtp_host: smtpHost,
       smtp_port: b.smtp_port ?? cfg.SMTP_PORT,
-      smtp_tls: (b.smtp_tls as TlsMode | undefined) ?? (cfg.SMTP_STARTTLS ? 'starttls' : 'none'),
+      smtp_tls: smtpTls,
       sealed,
       scopes,
       client_id: null,

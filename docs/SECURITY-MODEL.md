@@ -90,5 +90,6 @@ each case. Companion to `SECURITY.md` (reporting) and `docs/ARCHITECTURE.md`.
 - A Roundcube admin with filesystem access can read `config.inc.php` (`INTERNAL_KEY`) and the
   session store. This is no worse than their existing access to live sessions.
 - Transport security between the MCP server and the mail server follows what Roundcube itself
-  uses for that host (`implicit`, `starttls` or `none` on loopback); nothing is downgraded, but
-  nothing is upgraded either.
+  negotiated (`implicit` or `starttls`). Plaintext (`none`) is accepted only towards loopback
+  hosts, and even then STARTTLS is used opportunistically; the server refuses to store a grant
+  that would send credentials in clear to a remote host.

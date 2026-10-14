@@ -25,7 +25,7 @@ class rc_connector_mailhost
         } elseif ($sessionSsl === 'tls' || $parsed['scheme'] === 'tls') {
             $tls = self::TLS_STARTTLS;
         } else {
-            $tls = self::TLS_NONE;
+            $tls = self::plainOrStartTls($parsed['host']);
         }
         return ['host' => $parsed['host'], 'port' => $port, 'tls' => $tls];
     }
@@ -59,9 +59,21 @@ class rc_connector_mailhost
         } elseif ($parsed['scheme'] === 'tls') {
             $tls = self::TLS_STARTTLS;
         } else {
-            $tls = self::TLS_NONE;
+            $tls = self::plainOrStartTls($parsed['host']);
         }
         return ['host' => $parsed['host'], 'port' => $port, 'tls' => $tls];
+    }
+
+    public static function isLoopback(string $host): bool
+    {
+        $h = strtolower(trim($host, "[] \t"));
+        return $h === 'localhost' || $h === '::1' || strpos($h, '127.') === 0;
+    }
+
+    /** Plaintext is only ever reported for loopback; a remote host without TLS scheme gets STARTTLS required. */
+    private static function plainOrStartTls(string $host): string
+    {
+        return self::isLoopback($host) ? self::TLS_NONE : self::TLS_STARTTLS;
     }
 
     /** @return array{scheme:string, host:string, port:int} */

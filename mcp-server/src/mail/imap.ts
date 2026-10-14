@@ -7,7 +7,7 @@ import { addressList, htmlToText, parseRaw, referencesOf, sanitizeMailHtml, snip
 export interface ImapCredentials {
   host: string;
   port: number;
-  /** implicit (TLS on connect), starttls (upgrade, required) or none (plaintext, loopback only) */
+  /** implicit (TLS on connect), starttls (upgrade, required) or none (loopback only; STARTTLS still used opportunistically) */
   tls: 'implicit' | 'starttls' | 'none';
   rejectUnauthorized: boolean;
   user: string;
@@ -57,7 +57,8 @@ export class ImapMailbox implements MailClient {
       host: creds.host,
       port: creds.port,
       secure: creds.tls === 'implicit',
-      doSTARTTLS: creds.tls === 'starttls',
+      // 'starttls' = upgrade is mandatory; 'none' leaves imapflow's opportunistic STARTTLS in place
+      ...(creds.tls === 'starttls' ? { doSTARTTLS: true } : {}),
       tls: { rejectUnauthorized: creds.rejectUnauthorized },
       auth: { user: creds.user, pass: creds.pass },
       logger: false,

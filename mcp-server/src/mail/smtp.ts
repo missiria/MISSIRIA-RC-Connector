@@ -45,8 +45,8 @@ export class NodemailerSender implements SmtpSender {
       host: creds.host,
       port: creds.port,
       secure: creds.tls === 'implicit',
+      // 'starttls' = STARTTLS required; 'none' (loopback only) keeps nodemailer's opportunistic STARTTLS
       requireTLS: creds.tls === 'starttls',
-      ignoreTLS: creds.tls === 'none',
       auth: { user: creds.user, pass: creds.pass },
       connectionTimeout: 15000,
       socketTimeout: 60000,

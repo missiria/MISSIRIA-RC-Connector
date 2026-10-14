@@ -46,6 +46,15 @@ describe('internal API', () => {
     expect((info as unknown as { redirect_host: string }).redirect_host).toBe('ai.example.test');
   });
 
+  it('refuses plaintext mail transport to non-loopback hosts', async () => {
+    const { app, deps } = await makeApp();
+    const bad = await app.request('/internal/pats', { method: 'POST', headers: internalHeaders(deps), body: JSON.stringify({ username: 'bob@example.test', imap_host: 'imap.example.test', imap_tls: 'none', sealed: await sealedFor(deps), scopes: ['mail:read'] }) });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toBe('tls_required');
+    const ok = await app.request('/internal/pats', { method: 'POST', headers: internalHeaders(deps), body: JSON.stringify({ username: 'bob@example.test', imap_host: 'localhost', imap_tls: 'none', smtp_host: '127.0.0.1', smtp_tls: 'none', sealed: await sealedFor(deps), scopes: ['mail:read'] }) });
+    expect(ok.status).toBe(201);
+  });
+
   it('audit endpoint returns rows for the user', async () => {
     const { app, deps } = await makeApp();
     const f = await fullFlow(app, deps);

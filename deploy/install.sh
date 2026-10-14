@@ -210,6 +210,7 @@ if [[ $PLUGIN -eq 1 ]]; then
     log "Plugin already enabled in Roundcube config"
   else
     log "Enabling plugin in $RC_DIR/config/config.inc.php"
+    # shellcheck disable=SC2016  # PHP code: $config/$argv are PHP variables, not shell
     run php -r '
       $f = $argv[1]; $s = file_get_contents($f);
       $n = preg_replace("/(\\\$config\\[.plugins.\\]\\s*=\\s*(?:\\[|array\\())/", "$1\n    \"missiria_rc_connector\",", $s, 1, $count);
