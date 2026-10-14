@@ -19,7 +19,10 @@
  */
 class missiria_rc_connector extends rcube_plugin
 {
-    public $task = 'rcconnector|settings';
+    // 'login' is included on purpose: Roundcube rewrites the task of every anonymous request to
+    // 'login', and a plugin not registered for that task never initialises, so neither the
+    // contacts endpoint nor the pre-login consent stash would run.
+    public $task = 'login|rcconnector|settings';
 
     /** @var rcmail */
     private $rc;
@@ -57,14 +60,17 @@ class missiria_rc_connector extends rcube_plugin
      */
     public function on_startup($args)
     {
-        if ($args['task'] !== 'rcconnector') {
+        // For anonymous visitors Roundcube already replaced the task with 'login'; look at the raw request.
+        $task   = $args['task'] === 'login' ? $this->in('_task', rcube_utils::INPUT_GPC) : $args['task'];
+        $action = $args['task'] === 'login' ? $this->in('_action', rcube_utils::INPUT_GPC) : $args['action'];
+        if ($task !== 'rcconnector') {
             return $args;
         }
-        if ($args['action'] === 'contacts') {
+        if ($action === 'contacts') {
             $this->contacts_endpoint();
             exit;
         }
-        if ($args['action'] === 'consent' && empty($this->rc->user->ID)) {
+        if ($action === 'consent' && empty($this->rc->user->ID)) {
             $req = $this->in('req', rcube_utils::INPUT_GET);
             $sig = $this->in('sig', rcube_utils::INPUT_GET);
             if ($req && $sig && $this->signature()->verifyConsent($req, $sig)) {
