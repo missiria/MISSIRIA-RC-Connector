@@ -9,6 +9,7 @@ import { accountArg } from './tools-read.js';
 import type { AccountRow } from '../store/db.js';
 
 const folderArg = z.string().min(1).max(500).default('INBOX').describe('IMAP folder path');
+const refArg = z.string().max(900).optional().describe('Message handle "alias:folder/uid" as returned on every message; replaces folder + uid and selects the mailbox.');
 const uidArg = z.number().int().positive().describe('Message UID within the folder');
 const addressArg = z.string().email().max(320);
 /** base64 expands 3 bytes to 4 chars (+ padding); cap the string before any decoding happens. */
@@ -47,6 +48,13 @@ function requireExplicitMailbox(ctx: ToolContext, a: { account?: string | undefi
   if (reachable.length > 1) {
     throw new ToolError('ambiguous_mailbox', `${tool}: this connection reaches ${reachable.length} mailboxes, so say which one sends: pass account (alias, address or domain) or from (the sender address). Call list_accounts to see them. Nothing was sent.`);
   }
+}
+
+/** The address a reply should carry: the recipient address in the mailbox's own domain, else the mailbox address. */
+export function replyFrom(mailbox: Address, recipients: Address[]): Address {
+  const domain = mailbox.address.slice(mailbox.address.lastIndexOf('@') + 1).toLowerCase();
+  const hit = recipients.find((r) => r.address.slice(r.address.lastIndexOf('@') + 1).toLowerCase() === domain);
+  return hit ? { name: '', address: hit.address } : mailbox;
 }
 
 function decodeAttachments(list: Array<{ filename: string; mime: string; base64: string }> | undefined, maxBytes: number) {
@@ -122,8 +130,8 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     'reply_message',
     {
       title: 'Reply to an email',
-      description: 'Reply to a message (scopes mail:send + mail:read). Sets In-Reply-To/References, quotes the original and marks it answered (the answered flag is part of replying, no mail:write needed). reply_all includes the original Cc. When the connection reaches several mailboxes, name the one holding the message: `account`, or folder "alias:INBOX"; refused otherwise.',
-      inputSchema: { folder: folderArg, uid: uidArg, text: body.text, html: body.html, reply_all: z.boolean().default(false), attachments: body.attachments, account: accountArg },
+      description: 'Reply to a message (scopes mail:send + mail:read). Pass `ref` exactly as returned on the message by search_messages / get_message: the reply leaves from the mailbox, and the address, that received the message. Sets In-Reply-To/References, quotes the original and marks it answered (no mail:write needed). reply_all includes the original Cc. Without `ref`, give folder + uid and name the mailbox (`account` or folder "alias:INBOX"); refused when ambiguous.',
+      inputSchema: { ref: z.string().max(900).optional().describe('Reply handle "alias:folder/uid" as returned on every message. Preferred over folder + uid.'), folder: folderArg, uid: uidArg.optional(), text: body.text, html: body.html, reply_all: z.boolean().default(false), attachments: body.attachments, account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (raw) => {
@@ -132,18 +140,24 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
         ctx.requireScope('mail:send', 'reply_message');
         ctx.requireScope('mail:read', 'reply_message'); // the original is read and partially echoed back
         requireExplicitMailbox(ctx, a, 'reply_message');
+        if (a.uid === undefined) return toolError(new ToolError('invalid_argument', 'pass ref (as returned on the message) or folder + uid'));
+        const uid = a.uid;
         const account = ctx.account(a.account);
-        const original = await ctx.withMail('reply_message:read', a.folder, (m) => m.getMessage(a.folder, a.uid, { format: 'text', maxChars: 20_000 }), a.account);
-        if (!original) return toolError(new ToolError('not_found', `message ${a.uid} not found in ${a.folder}`));
-        const me = senderFor(ctx, account).address.toLowerCase();
-        const to = (original.replyTo.length ? original.replyTo : original.from).filter((x) => x.address.toLowerCase() !== me);
-        const cc = a.reply_all ? [...original.to, ...original.cc].filter((x) => x.address.toLowerCase() !== me && !to.some((t) => t.address === x.address)) : [];
+        const original = await ctx.withMail('reply_message:read', a.folder, (m) => m.getMessage(a.folder, uid, { format: 'text', maxChars: 20_000 }), a.account);
+        if (!original) return toolError(new ToolError('not_found', `message ${uid} not found in ${a.folder}`));
+        // Reply from the address the message was sent to when it belongs to this mailbox's domain
+        // (support@/info@ aliases delivered into one mailbox), else from the mailbox itself.
+        const from = replyFrom(senderFor(ctx, account), [...original.to, ...original.cc]);
+        const mine = new Set([from.address.toLowerCase(), senderFor(ctx, account).address.toLowerCase()]);
+        const to = (original.replyTo.length ? original.replyTo : original.from).filter((x) => !mine.has(x.address.toLowerCase()));
+        const cc = a.reply_all ? [...original.to, ...original.cc].filter((x) => !mine.has(x.address.toLowerCase()) && !to.some((t) => t.address === x.address)) : [];
         const subject = /^re:/i.test(original.subject) ? original.subject : `Re: ${original.subject}`;
         const quoted = `${a.text}\n\nOn ${original.date ?? 'unknown date'}, ${original.from.map((f) => f.address).join(', ')} wrote:\n${(original.text ?? '').split('\n').map((l) => `> ${l}`).join('\n')}`;
         const references = [...original.references, ...(original.messageId ? [original.messageId] : [])];
-        const res = await submit(ctx, 'reply_message', { from: senderFor(ctx, account), to: to.length ? to : original.from, cc, bcc: [], subject, text: quoted, html: a.html, inReplyTo: original.messageId ?? undefined, references, attachments: decodeAttachments(a.attachments, max) }, a.account);
-        await ctx.withMail('reply_message:flag', a.folder, (m) => m.setFlags(a.folder, a.uid, ['answered'], []), a.account).catch(() => undefined);
-        return ctx.ok({ ...res, subject, to: to.map((x) => x.address), cc: cc.map((x) => x.address), summary: `Replied to "${original.subject}".` }, `Replied to "${original.subject}".`);
+        const res = await submit(ctx, 'reply_message', { from, to: to.length ? to : original.from, cc, bcc: [], subject, text: quoted, html: a.html, inReplyTo: original.messageId ?? undefined, references, attachments: decodeAttachments(a.attachments, max) }, a.account);
+        ctx.deps.store.insertAudit({ grant_id: ctx.principal.grantId, username: ctx.principal.username, tool: 'reply_message', folder: a.folder, outcome: 'ok', ms: 0, ip: ctx.ip, account: account.alias, account_user: account.username });
+        await ctx.withMail('reply_message:flag', a.folder, (m) => m.setFlags(a.folder, uid, ['answered'], []), a.account).catch(() => undefined);
+        return ctx.ok({ ...res, subject, from: from.address, account: account.alias, to: to.map((x) => x.address), cc: cc.map((x) => x.address), summary: `Replied to "${original.subject}" from ${from.address}.` }, `Replied to "${original.subject}" from ${from.address}.`);
       } catch (e) { return toolError(e); }
     },
   );
@@ -171,15 +185,17 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Move a message',
       description: 'Move a message to another folder (scope mail:write). Use list_folders for valid folder paths.',
-      inputSchema: { folder: folderArg, uid: uidArg, to_folder: z.string().min(1).max(500), account: accountArg },
+      inputSchema: { folder: folderArg, ref: refArg, uid: uidArg.optional(), to_folder: z.string().min(1).max(500), account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (raw) => {
       const a = ctx.route(raw);
+      if (a.uid === undefined) return toolError(new ToolError('invalid_argument', 'pass ref (as returned on the message) or folder + uid'));
+      const uid = a.uid;
       try {
         ctx.requireScope('mail:write', 'move_message');
-        await ctx.withMail('move_message', a.folder, (m) => m.move(a.folder, a.uid, a.to_folder), a.account);
-        return ctx.ok({ moved: true, from: a.folder, to: a.to_folder, summary: `Moved message ${a.uid} from ${a.folder} to ${a.to_folder}.` }, `Moved message ${a.uid} to ${a.to_folder}.`);
+        await ctx.withMail('move_message', a.folder, (m) => m.move(a.folder, uid, a.to_folder), a.account);
+        return ctx.ok({ moved: true, from: a.folder, to: a.to_folder, summary: `Moved message ${uid} from ${a.folder} to ${a.to_folder}.` }, `Moved message ${uid} to ${a.to_folder}.`);
       } catch (e) { return toolError(e); }
     },
   );
@@ -189,16 +205,18 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Mark read / starred / answered',
       description: 'Add or remove flags on a message (scope mail:write): seen (read), flagged (starred), answered.',
-      inputSchema: { folder: folderArg, uid: uidArg, add: z.array(z.enum(['seen', 'flagged', 'answered'])).default([]), remove: z.array(z.enum(['seen', 'flagged', 'answered'])).default([]), account: accountArg },
+      inputSchema: { folder: folderArg, ref: refArg, uid: uidArg.optional(), add: z.array(z.enum(['seen', 'flagged', 'answered'])).default([]), remove: z.array(z.enum(['seen', 'flagged', 'answered'])).default([]), account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (raw) => {
       const a = ctx.route(raw);
+      if (a.uid === undefined) return toolError(new ToolError('invalid_argument', 'pass ref (as returned on the message) or folder + uid'));
+      const uid = a.uid;
       try {
         ctx.requireScope('mail:write', 'set_flags');
         if (a.add.length === 0 && a.remove.length === 0) throw new ToolError('invalid_argument', 'specify flags to add or remove');
-        const flags = await ctx.withMail('set_flags', a.folder, (m) => m.setFlags(a.folder, a.uid, a.add, a.remove), a.account);
-        return ctx.ok({ flags, summary: `Flags on message ${a.uid}: ${flags.join(', ') || 'none'}.` }, `Flags updated on message ${a.uid}.`);
+        const flags = await ctx.withMail('set_flags', a.folder, (m) => m.setFlags(a.folder, uid, a.add, a.remove), a.account);
+        return ctx.ok({ flags, summary: `Flags on message ${uid}: ${flags.join(', ') || 'none'}.` }, `Flags updated on message ${uid}.`);
       } catch (e) { return toolError(e); }
     },
   );
@@ -208,15 +226,17 @@ export function registerWriteTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Move a message to Trash',
       description: 'Move a message to the Trash folder (scope mail:write). Nothing is permanently deleted; the user can restore it in Roundcube.',
-      inputSchema: { folder: folderArg, uid: uidArg, account: accountArg },
+      inputSchema: { folder: folderArg, ref: refArg, uid: uidArg.optional(), account: accountArg },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (raw) => {
       const a = ctx.route(raw);
+      if (a.uid === undefined) return toolError(new ToolError('invalid_argument', 'pass ref (as returned on the message) or folder + uid'));
+      const uid = a.uid;
       try {
         ctx.requireScope('mail:write', 'delete_message');
-        const trash = await ctx.withMail('delete_message', a.folder, (m) => m.trash(a.folder, a.uid), a.account);
-        return ctx.ok({ moved_to: trash, summary: `Message ${a.uid} moved to ${trash}.` }, `Message ${a.uid} moved to ${trash}.`);
+        const trash = await ctx.withMail('delete_message', a.folder, (m) => m.trash(a.folder, uid), a.account);
+        return ctx.ok({ moved_to: trash, summary: `Message ${uid} moved to ${trash}.` }, `Message ${uid} moved to ${trash}.`);
       } catch (e) { return toolError(e); }
     },
   );

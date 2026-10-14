@@ -205,7 +205,10 @@ describe('MCP endpoint', () => {
     // the mailbox can be chosen inside folder / query when the model drops `account`
     expect(text(await client.callTool({ name: 'search_messages', arguments: { folder: 'yazzicars:INBOX', query: 'invoice' } })).messages.length).toBeGreaterThan(0);
     expect(deps.store.listAuditForUser('alice@example.test')[0]).toMatchObject({ tool: 'search_messages', account: 'yazzicars', folder: 'INBOX' });
-    expect(text(await client.callTool({ name: 'search_messages', arguments: { query: 'in:iptv-premium-europe invoice' } })).messages.length).toBe(2);
+    const routed = text(await client.callTool({ name: 'search_messages', arguments: { query: 'in:iptv-premium-europe invoice' } })).messages as Array<{ uid: number; account: string; ref: string }>;
+    expect(routed.length).toBe(2);
+    expect(routed[0]).toMatchObject({ account: 'iptv-premium-europe', ref: 'iptv-premium-europe:INBOX/3' });
+    expect(text(await client.callTool({ name: 'get_message', arguments: { ref: 'iptv-premium-europe:INBOX/3' } })).message).toMatchObject({ uid: 3, account: 'iptv-premium-europe', ref: 'iptv-premium-europe:INBOX/3' });
     expect(deps.store.listAuditForUser('alice@example.test')[0]).toMatchObject({ account: 'iptv-premium-europe' });
     const only = text(await client.callTool({ name: 'search', arguments: { query: 'contact@yazzicars.test' } })).results as Array<{ id: string }>;
     expect(only.length).toBe(3);
@@ -216,7 +219,7 @@ describe('MCP endpoint', () => {
     // search fans out over every reachable mailbox; fetch accepts directory aliases
     const results = text(await client.callTool({ name: 'search', arguments: { query: 'invoice' } })).results as Array<{ id: string }>;
     expect(new Set(results.map((r) => r.id.split(':')[0]))).toEqual(new Set(['example', 'yazzicars', 'iptv-premium-europe', 'yazzicars-billing']));
-    expect(text(await client.callTool({ name: 'fetch', arguments: { id: 'yazzicars-billing:INBOX/3' } })).metadata.account).toBe('yazzicars-billing');
+    expect(text(await client.callTool({ name: 'fetch', arguments: { id: 'yazzicars-billing:INBOX/3' } })).metadata).toMatchObject({ account: 'yazzicars-billing', ref: 'yazzicars-billing:INBOX/3' });
 
     // off again: sessions dropped, aliases unknown
     deps.store.setGrantAllMailboxes(f.grant.grant_id, false);

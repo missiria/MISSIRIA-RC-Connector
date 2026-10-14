@@ -21,6 +21,7 @@ class CaptureSmtp implements SmtpSender {
 
 class WriteMock implements MailClient {
   appendedSent: Buffer[] = [];
+  toOverride: Array<{ name: string; address: string }> | null = null;
   drafts: Buffer[] = [];
   moves: Array<[string, number, string]> = [];
   flags: Array<[number, Flag[], Flag[]]> = [];
@@ -28,7 +29,7 @@ class WriteMock implements MailClient {
   async search() { return { messages: [], total: 0, page: 0, limit: 20, hasMore: false }; }
   async getMessage(folder: string, uid: number): Promise<MessageDetail | null> {
     if (uid !== 7) return null;
-    return { uid, folder, date: '2026-10-13T09:00:00.000Z', from: [{ name: 'Ana', address: 'ana@example.test' }], to: [{ name: '', address: 'alice@example.test' }, { name: '', address: 'carl@example.test' }], cc: [{ name: '', address: 'dora@example.test' }], replyTo: [], subject: 'Quote request', snippet: '', flags: [], hasAttachments: false, size: 1, messageId: '<q7@example.test>', inReplyTo: null, references: ['<q0@example.test>'], text: 'Can you send a quote?', html: null, attachments: [], truncated: false };
+    return { uid, folder, date: '2026-10-13T09:00:00.000Z', from: [{ name: 'Ana', address: 'ana@example.test' }], to: this.toOverride ?? [{ name: '', address: 'alice@example.test' }, { name: '', address: 'carl@example.test' }], cc: [{ name: '', address: 'dora@example.test' }], replyTo: [], subject: 'Quote request', snippet: '', flags: [], hasAttachments: false, size: 1, messageId: '<q7@example.test>', inReplyTo: null, references: ['<q0@example.test>'], text: 'Can you send a quote?', html: null, attachments: [], truncated: false };
   }
   async getAttachment() { return null; }
   async getThread() { return []; }
@@ -165,6 +166,22 @@ describe('write tools', () => {
     expect(smtp.sent).toHaveLength(0);
     const vagueReply = await client.callTool({ name: 'reply_message', arguments: { folder: 'INBOX', uid: 7, text: 'Hi' } });
     expect(text(vagueReply)).toMatchObject({ error: 'ambiguous_mailbox' });
+    // reply by ref: the mailbox comes from the handle, From is the address the customer wrote to
+    mail.toOverride = [{ name: '', address: 'support@yazzicars.test' }, { name: '', address: 'carl@example.test' }];
+    const byRef = await client.callTool({ name: 'reply_message', arguments: { ref: 'yazzicars:INBOX/7', text: 'Sure.' } });
+    expect(byRef.isError).toBeFalsy();
+    expect(text(byRef)).toMatchObject({ account: 'yazzicars', from: 'support@yazzicars.test', to: ['ana@example.test'] });
+    expect(smtp.sent[0]!.creds).toMatchObject({ user: 'contact@yazzicars.test*rccmaster', pass: 'master-pw' });
+    expect(smtp.sent[0]!.envelope.from).toBe('support@yazzicars.test');
+    expect((await parseRaw(smtp.sent[0]!.raw)).headers.get('from')).toMatchObject({ value: [{ address: 'support@yazzicars.test' }] });
+    expect(deps.store.listAuditForUser('contact@yazzicars.test').map((a) => a.tool)).toContain('reply_message');
+    // no recipient in the mailbox's domain → the mailbox address itself
+    mail.toOverride = null;
+    smtp.sent = [];
+    const plainRef = await client.callTool({ name: 'reply_message', arguments: { ref: 'yazzicars:INBOX/7', text: 'Sure.' } });
+    expect(text(plainRef)).toMatchObject({ from: 'contact@yazzicars.test' });
+    smtp.sent = [];
+    mail.appendedSent = [];
     // `from` works like account
     const viaFrom = await client.callTool({ name: 'send_message', arguments: { from: 'contact@yazzicars.test', to: ['bob@example.test'], subject: 'From yazzicars', text: 'Hi' } });
     expect(viaFrom.isError).toBeFalsy();

@@ -7,6 +7,7 @@ import { ToolError, toolError } from './server.js';
 const SEARCH_CONCURRENCY = 6;
 
 const folderArg = z.string().min(1).max(500).default('INBOX').describe('IMAP folder path, e.g. "INBOX", "Sent", "Archive/2026"');
+const refArg = z.string().max(900).optional().describe('Message handle "alias:folder/uid" as returned on every message; replaces folder + uid and selects the mailbox.');
 const uidArg = z.number().int().positive().describe('Message UID as returned by search_messages (unique within its folder)');
 
 export const accountArg = z.string().max(320).optional().describe('Which mailbox to use. REQUIRED whenever the user names a brand, domain or address (e.g. "iptv-premium-europe", "contact@yazzicars.com", "yazzicars.com"); the value is an alias from list_accounts, a full address, or a bare domain. Omit only for the user\'s main mailbox.');
@@ -89,7 +90,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
           m.search({ folder: a.folder, query: a.query, from: a.from, to: a.to, subject: a.subject, since: a.since, before: a.before, unseen: a.unseen, flagged: a.flagged, hasAttachment: a.has_attachment, limit: a.limit, page: a.page }),
           a.account,
         );
-        return ctx.ok({ ...result, note: UNTRUSTED });
+        return ctx.ok({ ...result, messages: result.messages.map((m) => stamp(ctx, m)), note: UNTRUSTED });
       } catch (e) { return toolError(e); }
     },
   );
@@ -101,7 +102,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
       description: 'Fetch one message by folder + uid: headers, text body (and sanitised HTML if requested), attachment list. Long bodies are truncated; `truncated: true` tells you so.',
       inputSchema: {
         folder: folderArg,
-        uid: uidArg,
+        ref: refArg, uid: uidArg.optional(),
         format: z.enum(['text', 'html', 'both']).default('text'),
         max_chars: z.number().int().min(500).max(200_000).default(20_000),
         account: accountArg,
@@ -110,11 +111,13 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     },
     async (raw) => {
       const a = ctx.route(raw);
+      if (a.uid === undefined) return toolError(new ToolError('invalid_argument', 'pass ref (as returned on the message) or folder + uid'));
+      const uid = a.uid;
       try {
         read('get_message');
-        const msg = await ctx.withMail('get_message', a.folder, (m) => m.getMessage(a.folder, a.uid, { format: a.format, maxChars: a.max_chars }), a.account);
-        if (!msg) return toolError({ code: 'not_found', message: `message ${a.uid} not found in ${a.folder}` });
-        return ctx.ok({ message: msg, note: UNTRUSTED });
+        const msg = await ctx.withMail('get_message', a.folder, (m) => m.getMessage(a.folder, uid, { format: a.format, maxChars: a.max_chars }), a.account);
+        if (!msg) return toolError({ code: 'not_found', message: `message ${uid} not found in ${a.folder}` });
+        return ctx.ok({ message: stamp(ctx, msg), note: UNTRUSTED });
       } catch (e) { return toolError(e); }
     },
   );
@@ -124,15 +127,17 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Get conversation thread',
       description: 'Return the messages that belong to the same conversation as the given message (by Message-ID / References), oldest first, searched in the folder and in Sent.',
-      inputSchema: { folder: folderArg, uid: uidArg, limit: z.number().int().min(1).max(50).default(20), account: accountArg },
+      inputSchema: { folder: folderArg, ref: refArg, uid: uidArg.optional(), limit: z.number().int().min(1).max(50).default(20), account: accountArg },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (raw) => {
       const a = ctx.route(raw);
+      if (a.uid === undefined) return toolError(new ToolError('invalid_argument', 'pass ref (as returned on the message) or folder + uid'));
+      const uid = a.uid;
       try {
         read('get_thread');
-        const messages = await ctx.withMail('get_thread', a.folder, (m) => m.getThread(a.folder, a.uid, a.limit), a.account);
-        return ctx.ok({ messages, note: UNTRUSTED });
+        const messages = await ctx.withMail('get_thread', a.folder, (m) => m.getThread(a.folder, uid, a.limit), a.account);
+        return ctx.ok({ messages: messages.map((m) => stamp(ctx, m)), note: UNTRUSTED });
       } catch (e) { return toolError(e); }
     },
   );
@@ -142,14 +147,16 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Download an attachment',
       description: 'Download one attachment (base64) using the `part` id listed by get_message. Refuses files above the server limit.',
-      inputSchema: { folder: folderArg, uid: uidArg, part: z.string().min(1).max(40), account: accountArg },
+      inputSchema: { folder: folderArg, ref: refArg, uid: uidArg.optional(), part: z.string().min(1).max(40), account: accountArg },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (raw) => {
       const a = ctx.route(raw);
+      if (a.uid === undefined) return toolError(new ToolError('invalid_argument', 'pass ref (as returned on the message) or folder + uid'));
+      const uid = a.uid;
       try {
         read('get_attachment');
-        const att = await ctx.withMail('get_attachment', a.folder, (m) => m.getAttachment(a.folder, a.uid, a.part, ctx.deps.cfg.ATTACHMENT_MAX_BYTES), a.account);
+        const att = await ctx.withMail('get_attachment', a.folder, (m) => m.getAttachment(a.folder, uid, a.part, ctx.deps.cfg.ATTACHMENT_MAX_BYTES), a.account);
         if (!att) return toolError({ code: 'not_found', message: `attachment part ${a.part} not found` });
         return ctx.ok(att);
       } catch (e) { return toolError(e); }
@@ -203,7 +210,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
           .sort((x, y) => (y.m.date ?? '').localeCompare(x.m.date ?? ''))
           .slice(0, 20)
           .map(({ alias, m }) => ({
-            id: `${alias}:${encodeURIComponent(m.folder)}/${m.uid}`,
+            id: refOf(alias, m.folder, m.uid),
             title: targets.length > 1 ? `[${alias}] ${m.subject}` : m.subject,
             url: `${base}/?_task=mail&_mbox=${encodeURIComponent(m.folder)}&_uid=${m.uid}&_action=show`,
           }));
@@ -237,12 +244,23 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
           title: msg.subject,
           text: `From: ${msg.from.map((x) => x.address).join(', ')}\nDate: ${msg.date}\n\n${msg.text ?? ''}`,
           url: `${ctx.deps.cfg.WEBMAIL_URL}/?_task=mail&_mbox=${encodeURIComponent(folder)}&_uid=${uid}&_action=show`,
-          metadata: { account: alias ?? ctx.account(null).alias, folder, uid, from: msg.from, to: msg.to, date: msg.date, hasAttachments: msg.hasAttachments, note: UNTRUSTED },
+          metadata: { account: alias ?? ctx.account(null).alias, ref: refOf(alias ?? ctx.account(null).alias, folder, uid), folder, uid, from: msg.from, to: msg.to, date: msg.date, hasAttachments: msg.hasAttachments, note: UNTRUSTED },
         };
         return { content: [{ type: 'text', text: JSON.stringify(doc) }] };
       } catch (e) { return toolError(e); }
     },
   );
+}
+
+/** Reply handle of a message: "alias:folder/uid" (the id format `fetch` accepts and `reply_message` takes as `ref`). */
+export function refOf(alias: string, folder: string, uid: number): string {
+  return `${alias}:${encodeURIComponent(folder)}/${uid}`;
+}
+
+/** Adds the mailbox alias and the reply handle to a message, so replies never have to guess the mailbox. */
+function stamp<T extends { folder: string; uid: number }>(ctx: ToolContext, m: T): T & { account: string; ref: string } {
+  const alias = ctx.lastAccount?.alias ?? ctx.account(null).alias;
+  return { ...m, account: alias, ref: refOf(alias, m.folder, m.uid) };
 }
 
 /** "alias:folder/uid" → alias + "folder/uid"; a prefix is only an alias when it names a reachable mailbox. */
