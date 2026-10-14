@@ -341,7 +341,8 @@ less install.sh      # read it first
 bash install.sh --mcp-host MCP_HOST --webmail-host WEBMAIL_HOST --rc-dir RC_DIR --email ADMIN_EMAIL
 ```
 
-Flags: `--ref <tag|branch>` (default `main`), `--no-certbot`, `--no-plugin`, `--dry-run`.
+Flags: `--ref <tag|branch>` (default `main`), `--port <n>` (default 8787; the installer refuses a port already in use), `--no-certbot`, `--no-plugin`, `--dry-run`.
+If the system Node is older than 22.13 the installer does **not** replace it (other services such as pm2 apps may depend on it); it downloads a checksum-verified Node 22 tarball into `/opt/missiria-rc-connector/node` and points the systemd unit at that binary.
 It is idempotent: re-running updates code, keeps keys, env and grants.
 `deploy/uninstall.sh --mcp-host MCP_HOST --rc-dir RC_DIR [--keep-data]` reverses it.
 

@@ -6,7 +6,11 @@
 # Usage:
 #   bash install.sh --mcp-host mcp.example.com --webmail-host webmail.example.com \
 #                   --rc-dir /var/www/roundcube --email admin@example.com \
-#                   [--ref main] [--no-certbot] [--no-plugin] [--dry-run]
+#                   [--ref main] [--port 8787] [--no-certbot] [--no-plugin] [--dry-run]
+#
+# Node: if the system node is older than 22.13 the installer does NOT replace it (pm2 apps may
+# depend on it); it downloads an official Node 22 tarball into /opt/missiria-rc-connector/node
+# and points the systemd unit at that binary.
 set -euo pipefail
 
 REPO_URL="https://github.com/missiria/MISSIRIA-RC-Connector.git"
@@ -21,6 +25,9 @@ DATA_DIR="/var/lib/missiria-rc-connector"
 LOG_DIR="/var/log/missiria-rc-connector"
 UNIT="missiria-rc-connector"
 PORT=8787
+NODE_DIR="$APP_HOME/node"      # private Node runtime when the system one is too old
+NODE_BIN="/usr/bin/node"
+NODE_VERSION="22.20.0"
 
 MCP_HOST=""; WEBMAIL_HOST=""; RC_DIR=""; ADMIN_EMAIL=""; GIT_REF="main"
 CERTBOT=1; PLUGIN=1; DRY=0
@@ -38,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --rc-dir)       RC_DIR="$2"; shift 2 ;;
     --email)        ADMIN_EMAIL="$2"; shift 2 ;;
     --ref)          GIT_REF="$2"; shift 2 ;;
+    --port)         PORT="$2"; shift 2 ;;
     --no-certbot)   CERTBOT=0; shift ;;
     --no-plugin)    PLUGIN=0; shift ;;
     --dry-run)      DRY=1; shift ;;
@@ -53,23 +61,37 @@ done
 [[ $PLUGIN -eq 0 || -f "$RC_DIR/config/config.inc.php" ]] || die "$RC_DIR does not look like a Roundcube install (config/config.inc.php missing)"
 
 command -v apt-get >/dev/null || die "this installer targets Debian/Ubuntu (apt-get not found)"
-
-# --- 1. Node.js >= 22.13 ----------------------------------------------------
-node_ok() {
-  command -v node >/dev/null || return 1
-  local v; v="$(node -v | sed 's/^v//')"
-  [[ "$(printf '%s\n22.13.0\n' "$v" | sort -V | head -1)" == "22.13.0" ]]
-}
-if node_ok; then
-  log "Node $(node -v) already present"
-else
-  log "Installing Node.js 22 LTS (NodeSource)"
-  run bash -c 'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -'
-  run apt-get install -y nodejs
+[[ "$PORT" =~ ^[0-9]+$ ]] || die "--port must be numeric"
+if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${PORT}$" && ! systemctl is-active --quiet "$UNIT" 2>/dev/null; then
+  die "port $PORT is already in use by another service; pass --port <free port>"
 fi
-for bin in git curl rsync; do
-  command -v "$bin" >/dev/null || run apt-get install -y "$bin"
+
+for bin in git curl rsync xz; do
+  command -v "$bin" >/dev/null || run apt-get install -y "$bin" xz-utils
 done
+
+# --- 1. Node.js >= 22.13 (never replaces the system node) --------------------
+node_version_ok() {
+  local v; v="$("$1" -v 2>/dev/null | sed 's/^v//')" || return 1
+  [[ -n "$v" && "$(printf '%s\n22.13.0\n' "$v" | sort -V | head -1)" == "22.13.0" ]]
+}
+if command -v node >/dev/null && node_version_ok "$(command -v node)"; then
+  NODE_BIN="$(command -v node)"
+  log "Using system Node $("$NODE_BIN" -v) at $NODE_BIN"
+elif [[ -x "$NODE_DIR/bin/node" ]] && node_version_ok "$NODE_DIR/bin/node"; then
+  NODE_BIN="$NODE_DIR/bin/node"
+  log "Using private Node $("$NODE_BIN" -v) at $NODE_BIN"
+else
+  log "System Node is missing or older than 22.13; installing private Node $NODE_VERSION into $NODE_DIR"
+  arch="$(uname -m)"; case "$arch" in x86_64) narch=x64 ;; aarch64) narch=arm64 ;; *) die "unsupported arch $arch" ;; esac
+  tarball="node-v$NODE_VERSION-linux-$narch.tar.xz"
+  run install -d -o root -g "$APP_USER" -m 755 "$NODE_DIR"
+  run bash -c "cd /tmp && curl -fsSLO 'https://nodejs.org/dist/v$NODE_VERSION/$tarball' && curl -fsSLO 'https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt' && grep ' $tarball\$' SHASUMS256.txt | sha256sum -c - && tar -xJf '$tarball' -C '$NODE_DIR' --strip-components=1 && rm -f '$tarball' SHASUMS256.txt"
+  NODE_BIN="$NODE_DIR/bin/node"
+fi
+NODE_PATH_PREFIX="$(dirname "$NODE_BIN")"
+# npm must come from the same runtime as node
+as_app_node() { run sudo -u "$APP_USER" env "PATH=$NODE_PATH_PREFIX:/usr/bin:/bin" bash -c "$1"; }
 
 # --- 2. User and directories ------------------------------------------------
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
@@ -77,6 +99,7 @@ if ! id -u "$APP_USER" >/dev/null 2>&1; then
   run useradd --system --home "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER"
 fi
 run install -d -o root -g "$APP_USER" -m 750 "$APP_HOME"
+[[ -d "$NODE_DIR" ]] && run chmod 755 "$NODE_DIR"
 run install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$DATA_DIR" "$LOG_DIR" "$APP_DIR"
 run install -d -o root -g "$APP_USER" -m 750 "$ETC_DIR" "$KEYS_DIR"
 
@@ -99,17 +122,17 @@ run chmod -R g-w,o-rwx "$SRC_DIR"
 log "Building mcp-server in $APP_DIR"
 run rsync -a --delete --exclude node_modules --exclude dist "$SRC_DIR/mcp-server/" "$APP_DIR/"
 run chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
-run sudo -u "$APP_USER" bash -c "cd '$APP_DIR' && npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev --no-audit --no-fund"
+as_app_node "cd '$APP_DIR' && npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev --no-audit --no-fund"
 
 # --- 4. Keys and environment ------------------------------------------------
 if [[ ! -f "$KEYS_DIR/server.sk" ]]; then
   log "Generating sealing key pair"
-  run sudo -u "$APP_USER" node "$APP_DIR/dist/cli.js" keygen --out "$KEYS_DIR"
+  run sudo -u "$APP_USER" "$NODE_BIN" "$APP_DIR/dist/cli.js" keygen --out "$KEYS_DIR"
 else
   log "Key pair already present, keeping it"
 fi
 PUBKEY="(dry-run)"
-[[ $DRY -eq 1 ]] || PUBKEY="$(sudo -u "$APP_USER" node "$APP_DIR/dist/cli.js" pubkey --keys "$KEYS_DIR")"
+[[ $DRY -eq 1 ]] || PUBKEY="$(sudo -u "$APP_USER" "$NODE_BIN" "$APP_DIR/dist/cli.js" pubkey --keys "$KEYS_DIR")"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   log "Writing $ENV_FILE"
@@ -145,11 +168,11 @@ else
 fi
 
 log "Running database migrations"
-run sudo -u "$APP_USER" bash -c "set -a; . '$ENV_FILE'; set +a; node '$APP_DIR/dist/cli.js' migrate"
+run sudo -u "$APP_USER" bash -c "set -a; . '$ENV_FILE'; set +a; '$NODE_BIN' '$APP_DIR/dist/cli.js' migrate"
 
 # --- 5. systemd ---------------------------------------------------------------
 log "Installing systemd unit"
-run install -m 644 "$SRC_DIR/deploy/systemd/$UNIT.service" "/etc/systemd/system/$UNIT.service"
+run bash -c "sed 's|^ExecStart=.*|ExecStart=$NODE_BIN dist/server.js|' '$SRC_DIR/deploy/systemd/$UNIT.service' > '/etc/systemd/system/$UNIT.service' && chmod 644 '/etc/systemd/system/$UNIT.service'"
 run install -m 644 "$SRC_DIR/deploy/logrotate/$UNIT" "/etc/logrotate.d/$UNIT"
 run systemctl daemon-reload
 run systemctl enable --quiet "$UNIT"
@@ -164,7 +187,7 @@ fi
 VHOST="/etc/nginx/sites-available/$MCP_HOST.conf"
 if [[ ! -f "$VHOST" ]]; then
   log "Installing nginx vhost $VHOST"
-  run bash -c "sed 's/mcp\\.example\\.com/$MCP_HOST/g' '$SRC_DIR/deploy/nginx/mcp.example.com.conf' > '$VHOST'"
+  run bash -c "sed -e 's/mcp\\.example\\.com/$MCP_HOST/g' -e 's/127\\.0\\.0\\.1:8787/127.0.0.1:$PORT/' '$SRC_DIR/deploy/nginx/mcp.example.com.conf' > '$VHOST'"
   run ln -sf "$VHOST" "/etc/nginx/sites-enabled/$MCP_HOST.conf"
 else
   log "nginx vhost already present, keeping it"
