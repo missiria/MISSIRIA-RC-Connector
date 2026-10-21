@@ -37,7 +37,7 @@
     "imapflow": "^2.4.0",
     "jose": "^6.2.12",
     "libsodium-wrappers": "^0.8.4",
-    "mailparser": "^3.9.38",
+    "mailparser": "^3.9.40",
     "nodemailer": "^10.1.0",
     "pino": "^10.4.0",
     "sanitize-html": "^2.18.0",
