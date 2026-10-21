@@ -38,7 +38,7 @@
     "jose": "^6.2.12",
     "libsodium-wrappers": "^0.8.4",
     "mailparser": "^3.9.38",
-    "nodemailer": "^10.1.0",
+    "nodemailer": "^10.1.2",
     "pino": "^10.4.0",
     "sanitize-html": "^2.18.0",
     "zod": "^4.6.7"
