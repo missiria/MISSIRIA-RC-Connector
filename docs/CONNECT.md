@@ -192,7 +192,7 @@ custom MCP connectors are available on your plan.
 ## Any stdio-only client (local proxy)
 
 ```bash
-npx -y missiria-rc-connector stdio --url https://mcp.example.com/mcp --token rcc_xxxxxxxx
+npx -y @missiria/rc-connector stdio --url https://mcp.example.com/mcp --token rcc_xxxxxxxx
 ```
 
 Claude Desktop `claude_desktop_config.json` example:
@@ -202,7 +202,7 @@ Claude Desktop `claude_desktop_config.json` example:
   "mcpServers": {
     "roundcube": {
       "command": "npx",
-      "args": ["-y", "missiria-rc-connector", "stdio", "--url", "https://mcp.example.com/mcp"],
+      "args": ["-y", "@missiria/rc-connector", "stdio", "--url", "https://mcp.example.com/mcp"],
       "env": { "RC_CONNECTOR_TOKEN": "rcc_xxxxxxxx" }
     }
   }

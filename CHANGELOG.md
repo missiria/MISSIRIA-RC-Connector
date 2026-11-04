@@ -5,7 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [1.0.0] - 2026-11-04
 
-First tagged release. Open-source MCP connector that gives any AI platform
+Published on npm as `@missiria/rc-connector` (user scope). First tagged
+release. Open-source MCP connector that gives any AI platform
 (ChatGPT, Claude, Codex, Cursor, Copilot, Gemini, n8n) read and write access
 to a self-hosted Roundcube mailbox, with OAuth 2.1 consent and per-grant
 sealed credentials.

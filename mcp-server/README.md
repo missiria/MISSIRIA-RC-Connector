@@ -1,4 +1,4 @@
-# missiria-rc-connector (MCP server)
+# @missiria/rc-connector (MCP server)
 
 Node 22+ server for the MISSIRIA RC Connector: OAuth 2.1 authorization server,
 MCP Streamable HTTP endpoint, IMAP/SMTP tools. See the repository root
