@@ -3,6 +3,13 @@
 All notable changes to MISSIRIA RC Connector are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [1.0.1] - 2026-11-04
+
+### Fixed
+
+- `rc-connector --version` printed `0.1.0` because `src/version.ts` was a
+  hardcoded string; sync with `package.json` and bump.
+
 ## [1.0.0] - 2026-11-04
 
 Published on npm as `@missiria/rc-connector` (user scope). First tagged
@@ -93,4 +100,5 @@ sealed credentials.
   listing, Docker image on `ghcr.io`, 2-minute demo recording, public
   announcement posts, `SoftwareApplication` schema page on eksneks.com.
 
+[1.0.1]: https://github.com/missiria/MISSIRIA-RC-Connector/releases/tag/v1.0.1
 [1.0.0]: https://github.com/missiria/MISSIRIA-RC-Connector/releases/tag/v1.0.0

@@ -1,6 +1,6 @@
 {
   "name": "@missiria/rc-connector",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server + OAuth 2.1 authorization server for the MISSIRIA RC Connector (Roundcube)",
   "license": "MIT",
   "type": "module",
